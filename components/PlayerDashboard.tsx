@@ -4,6 +4,7 @@ import {
   ActivityIndicator, SafeAreaView, Platform, Alert, TextInput, Modal
 } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import MapView, { Marker, Circle } from 'react-native-maps';
 import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '@/supabase';
 import { Profile, Team } from '@/types';
@@ -13,6 +14,7 @@ import TasksPlayerView from '@/components/TasksPlayerView';
 import Leaderboard from '@/components/Leaderboard';
 import GlobalAlertModal from '@/components/GlobalAlertModal';
 import SpecialEventModal from '@/components/SpecialEventModal';
+import GroupChat from '@/components/GroupChat';
 
 interface Props {
   userProfile: Profile;
@@ -23,12 +25,25 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
   const [userProfile, setUserProfile] = useState<Profile>(initialProfile);
   const [team, setTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'tasks' | 'ranking' | 'map'>('tasks');
+  const [activeTab, setActiveTab] = useState<'tasks' | 'ranking' | 'map' | 'chat'>('tasks');
+  const [mapTasks, setMapTasks] = useState<any[]>([]);
   
   // Stany dla QR i formularzy
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(false);
   const [newTeamName, setNewTeamName] = useState('');
+
+  // Pobierz zadania na mapę przy ładowaniu
+  useEffect(() => {
+    if (team?.aktywny_zestaw_id) {
+      supabase
+        .from('tasks')
+        .select('id, tytul, latitude, longitude, promien_metry, typ')
+        .eq('zestaw_id', team.aktywny_zestaw_id)
+        .not('latitude', 'is', null)
+        .then(({ data }) => { if (data) setMapTasks(data); });
+    }
+  }, [team?.aktywny_zestaw_id]);
 
   useEffect(() => {
     const profileSub = supabase.channel(`profile_sync_${userProfile.id}`)
@@ -229,7 +244,37 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
       <View style={{ flex: 1 }}>
         {activeTab === 'tasks' && <TasksPlayerView team={team} userProfile={userProfile} />}
         {activeTab === 'ranking' && <Leaderboard />}
-        {activeTab === 'map' && <View style={styles.placeholder}><Text style={{color: '#444'}}>Mapa wkrótce...</Text></View>}
+        {activeTab === 'map' && (
+          <MapView
+            style={{ flex: 1 }}
+            initialRegion={{ latitude: 54.4641, longitude: 17.0285, latitudeDelta: 0.06, longitudeDelta: 0.06 }}
+            showsUserLocation
+            showsMyLocationButton
+          >
+            {mapTasks.map((t: any) => (
+              <React.Fragment key={t.id}>
+                <Circle
+                  center={{ latitude: t.latitude, longitude: t.longitude }}
+                  radius={t.promien_metry || 50}
+                  fillColor={t.typ === 'glowne' ? 'rgba(55,66,250,0.2)' : 'rgba(46,213,115,0.2)'}
+                  strokeColor={t.typ === 'glowne' ? '#3742fa' : '#2ed573'}
+                  strokeWidth={2}
+                />
+                <Marker
+                  coordinate={{ latitude: t.latitude, longitude: t.longitude }}
+                  pinColor={t.typ === 'glowne' ? '#3742fa' : '#2ed573'}
+                  title={t.tytul}
+                />
+              </React.Fragment>
+            ))}
+          </MapView>
+        )}
+        {activeTab === 'chat' && (
+          <GroupChat
+            channel={userProfile.rola === 'impostor' ? 'impostor' : userProfile.rola === 'detektyw' ? 'detektyw' : 'agenci'}
+            userProfile={userProfile}
+          />
+        )}
       </View>
 
       <View style={styles.tabBar}>
@@ -240,6 +285,14 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
         <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('ranking')}>
           <Text style={[styles.tabIcon, activeTab === 'ranking' && styles.tabActive]}>🏆</Text>
           <Text style={[styles.tabLabel, activeTab === 'ranking' && styles.tabActive]}>RANKING</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('map')}>
+          <Text style={[styles.tabIcon, activeTab === 'map' && styles.tabActive]}>🗺️</Text>
+          <Text style={[styles.tabLabel, activeTab === 'map' && styles.tabActive]}>MAPA</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('chat')}>
+          <Text style={[styles.tabIcon, activeTab === 'chat' && styles.tabActive]}>💬</Text>
+          <Text style={[styles.tabLabel, activeTab === 'chat' && styles.tabActive]}>CZAT</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>

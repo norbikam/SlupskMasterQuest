@@ -50,7 +50,7 @@ export default function GameManagementTab() {
       
       <View style={styles.infoBox}>
         <Text style={styles.infoText}>
-          Pamiętaj: Zestaw musi być najpierw wpisany w edycji zadania jako "zestaw_id", aby pojawił się na tej liście.
+          Pamiętaj: Zestaw musi być najpierw wpisany w edycji zadania jako &quot;zestaw_id&quot;, aby pojawił się na tej liście.
         </Text>
       </View>
 
