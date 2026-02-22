@@ -9,56 +9,57 @@ export default function GroupChat({ channel, userProfile }: { channel: string, u
 
   useEffect(() => {
     fetchMessages();
-    
     const sub = supabase.channel(`chat_${channel}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `channel=eq.${channel}` }, 
       () => {
+        // Odświeżamy listę, by zaciągnąć z bazy relacje profiles(imie_pseudonim) dla nowych wiadomości
         fetchMessages();
       })
       .subscribe();
-      
     return () => { supabase.removeChannel(sub); };
   }, [channel]);
 
   const fetchMessages = async () => {
-    const { data } = await supabase
-      .from('chat_messages')
+    // Zapytanie, które pobiera powiązane imię użytkownika z tabeli profiles
+    const { data } = await supabase.from('chat_messages')
       .select('*, profiles(imie_pseudonim)')
       .eq('channel', channel)
       .order('created_at', { ascending: false })
       .limit(50);
-      
     if (data) setMessages(data);
   };
 
   const sendMessage = async () => {
     if (!inputText.trim()) return;
-    await supabase.from('chat_messages').insert([{ 
-      channel, 
-      sender_id: userProfile.id, 
-      text: inputText.trim() 
-    }]);
+    await supabase.from('chat_messages').insert([{ channel, sender_id: userProfile.id, text: inputText.trim() }]);
     setInputText('');
   };
 
-  // LOGIKA ANONIMOWOŚCI
-  const getNick = (item: any) => {
-    // 1. Jeśli to Ty piszesz
-    if (item.sender_id === userProfile.id) return "TY";
-    
-    // 2. Jeśli czat przegląda organizator - widzi Prawdę
-    if (userProfile.rola === 'organizator') {
-      return item.profiles?.imie_pseudonim ? `${item.profiles.imie_pseudonim.toUpperCase()}` : 'NIEZNANY';
+  const getAnonNick = (item: any) => {
+    // 1. Jeśli to Ty wysłałeś wiadomość
+    if (item.sender_id === userProfile.id) {
+        return userProfile.rola === 'organizator' ? "TY (ORGANIZATOR)" : "TY";
     }
     
-    // 3. W pozostałych przypadkach ukrywamy pod pseudonimem z Hasha UUID
+    // 2. Jeśli jesteś Organizatorem, widzisz prawdziwe imiona innych graczy
+    if (userProfile.rola === 'organizator') {
+      return item.profiles?.imie_pseudonim ? item.profiles.imie_pseudonim.toUpperCase() : 'NIEZNANY';
+    }
+    
+    // 3. Jeśli pisze do Ciebie Organizator, widzisz go jako "DOWÓDZTWO" (by rozpoznać, że to admin)
+    // UWAGA: Zapytanie SQL nie zwraca pola "rola" powiązanego użytkownika, więc opieramy to na ew. logice.
+    // Jeśli nie chcesz, aby admin się wyróżniał, pomiń to. Zostawiamy pełną anonimowość opartą na Hashu dla innych graczy.
     const hash = item.sender_id.split('-')[0].toUpperCase(); 
     return `OPERATOR_${hash}`; 
   };
 
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.container}>
-      <Text style={styles.channelHeader}>TAJNY KANAŁ: {channel.toUpperCase()}</Text>
+    <KeyboardAvoidingView 
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0} 
+      style={styles.container}
+    >
+      <Text style={styles.channelHeader}>TAJNY KANAŁ FRAKCJI: {channel.toUpperCase()}</Text>
       <FlatList
         inverted
         data={messages}
@@ -67,7 +68,9 @@ export default function GroupChat({ channel, userProfile }: { channel: string, u
           const isMe = item.sender_id === userProfile.id;
           return (
             <View style={[styles.msgBox, isMe ? styles.myMsg : styles.otherMsg]}>
-              <Text style={[styles.anonNick, isMe && { color: '#fff', opacity: 0.8 }]}>{getNick(item)}</Text>
+              <Text style={[styles.anonNick, isMe && { color: '#fff', opacity: 0.8 }]}>
+                {getAnonNick(item)}
+              </Text>
               <Text style={styles.msgText}>{item.text}</Text>
             </View>
           );

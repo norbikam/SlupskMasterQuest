@@ -78,10 +78,7 @@ export default function AccountsTab() {
       const { error: err } = await supabase.from('profiles').update(payload).eq('id', editingId);
       error = err;
     } else {
-      const { error: err } = await supabase.from('profiles').insert([{ 
-        id: Math.random().toString(36).substr(2, 9), 
-        ...payload
-      }]);
+      const { error: err } = await supabase.from('profiles').insert([payload]);
       error = err;
     }
 
@@ -177,7 +174,7 @@ export default function AccountsTab() {
             
             <Text style={styles.label}>ROLA:</Text>
             <View style={styles.roleRow}>
-              {(['gracz', 'agent', 'impostor', 'organizator'] as UserRole[]).map(r => (
+              {(['gracz', 'agent', 'impostor', 'detektyw', 'organizator'] as UserRole[]).map(r => (
                 <TouchableOpacity 
                   key={r} 
                   style={[styles.roleBtn, rola === r && styles.roleBtnActive]} 
