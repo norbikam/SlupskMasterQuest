@@ -1,36 +1,17 @@
-// @/types.ts
-
-// Dodajemy 'export', żeby błąd w AccountsTab zniknął
+// types.ts
 export type UserRole = 'gracz' | 'agent' | 'impostor' | 'detektyw' | 'organizator';
-
-// Ujednolicamy typy zadań - usuwamy zamieszanie z "poboczne"
-export type TaskType = 'glowne' | 'sidequest' | 'special_event'; 
+export type TaskType = 'glowne' | 'sidequest' | 'special_event';
 
 export interface Profile {
   id: string;
   imie_pseudonim: string;
-  login?: string; 
+  login?: string;
   rola: UserRole;
   team_id?: string;
   is_leader: boolean;
-}
-
-export interface Task {
-  id: string;
-  tytul: string;
-  opis: string;
-  miejsce_opis: string;
-  typ: TaskType; 
-  zestaw_id?: string;
-  punkty_bazowe: number;
-  latitude?: number; 
+  latitude?: number;
   longitude?: number;
-  promien_metry: number;
-  gate_5_min?: number;
-  gate_4_min?: number;
-  gate_3_min?: number;
-  gate_2_min?: number;
-  gate_1_min?: number;
+  haslo: string;
 }
 
 export interface Team {
@@ -42,6 +23,24 @@ export interface Team {
   target_main_tasks: number;
   latitude?: number;
   longitude?: number;
+}
+
+export interface Task {
+  id: string;
+  tytul: string;
+  opis: string;
+  miejsce_opis: string;
+  typ: TaskType;
+  zestaw_id?: string;
+  punkty_bazowe: number;
+  latitude?: number;
+  longitude?: number;
+  promien_metry: number;
+  gate_5_min?: number;
+  gate_4_min?: number;
+  gate_3_min?: number;
+  gate_2_min?: number;
+  gate_1_min?: number;
 }
 
 export interface TeamTask {

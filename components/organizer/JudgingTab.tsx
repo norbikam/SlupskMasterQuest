@@ -7,10 +7,6 @@ export default function JudgingTab() {
 
   useEffect(() => {
     fetchSubmissions();
-    const sub = supabase.channel('judging_sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_tasks' }, () => fetchSubmissions())
-      .subscribe();
-    return () => { supabase.removeChannel(sub); };
   }, []);
 
   const fetchSubmissions = async () => {
@@ -25,16 +21,16 @@ export default function JudgingTab() {
   const calculateNetTime = (item: any) => {
     const start = new Date(item.rozpoczecie_zadania).getTime();
     const end = new Date(item.przeslano_zadanie).getTime();
-    const pause = item.suma_pauzy_ms || 0;
+    const pauseMs = item.suma_pauzy_ms || 0;
     
-    const netMs = (end - start) - pause;
+    const netMs = (end - start) - pauseMs;
     const netMin = Math.floor(netMs / 1000 / 60);
     const netSec = Math.floor((netMs / 1000) % 60);
     
     return { totalMin: netMin, display: `${netMin}m ${netSec}s` };
   };
 
-  const getSuggestedBonus = (netMin: number, task: any) => {
+  const getBonus = (netMin: number, task: any) => {
     if (task.gate_5_min && netMin <= task.gate_5_min) return 5;
     if (task.gate_4_min && netMin <= task.gate_4_min) return 4;
     if (task.gate_3_min && netMin <= task.gate_3_min) return 3;
@@ -46,25 +42,25 @@ export default function JudgingTab() {
   const handleVerdict = async (item: any, approved: boolean) => {
     if (approved) {
       const { totalMin } = calculateNetTime(item);
-      const bonus = getSuggestedBonus(totalMin, item.tasks);
-      const finalPoints = item.tasks.punkty_bazowe + bonus;
+      const bonus = getBonus(totalMin, item.tasks);
+      const totalPoints = item.tasks.punkty_bazowe + bonus;
 
-      // 1. Aktualizacja statusu zadania
+      // 1. Aktualizuj status zadania i przyznaj punkty
       await supabase.from('team_tasks').update({ 
         status: 'zaakceptowane', 
-        przyznane_punkty: finalPoints 
+        przyznane_punkty: totalPoints 
       }).eq('id', item.id);
 
-      // 2. Dodanie punktów drużynie
-      await supabase.rpc('increment_team_points', { team_id: item.team_id, amount: finalPoints });
+      // 2. Dodaj punkty drużynie (RPC increment lub update)
+      await supabase.rpc('increment_team_points', { team_id: item.team_id, amount: totalPoints });
 
-      // 3. JEŚLI TO BYŁO ZADANIE SPECJALNE -> Odpauzuj zadanie główne!
+      // 3. Jeśli to był Special Event -> Odpauzuj zadanie główne drużyny
       if (item.tasks.typ === 'special_event') {
-        const now = new Date().getTime();
-        const pauseStart = new Date(item.rozpoczecie_zadania).getTime(); // Dla uproszczenia liczymy od startu specjalnego
-        const pauseDuration = now - pauseStart;
+        const pauseEnd = new Date().getTime();
+        const pauseStart = new Date(item.rozpoczecie_zadania).getTime();
+        const duration = pauseEnd - pauseStart;
 
-        // Pobierz aktualnie zapauzowane zadanie główne
+        // Znajdź zadanie główne, które było "w toku"
         const { data: mainTask } = await supabase
           .from('team_tasks')
           .select('*')
@@ -75,14 +71,14 @@ export default function JudgingTab() {
 
         if (mainTask) {
           await supabase.from('team_tasks').update({
-            suma_pauzy_ms: (mainTask.suma_pauzy_ms || 0) + pauseDuration,
+            suma_pauzy_ms: (mainTask.suma_pauzy_ms || 0) + duration,
             ostatnia_pauza_start: null
           }).eq('id', mainTask.id);
         }
       }
     } else {
-      // Odrzucenie - pozwala wysłać ponownie, czas leci dalej
-      await supabase.from('team_tasks').update({ status: 'odrzucone' }).eq('id', item.id);
+      // Odrzucone: powrót do statusu 'w_toku', żeby mogli poprawić i wysłać znów
+      await supabase.from('team_tasks').update({ status: 'w_toku' }).eq('id', item.id);
     }
     fetchSubmissions();
   };
@@ -92,28 +88,27 @@ export default function JudgingTab() {
       <Text style={styles.title}>OCENA ZADAŃ ⚖️</Text>
       {submissions.map(item => {
         const { display, totalMin } = calculateNetTime(item);
-        const bonus = getSuggestedBonus(totalMin, item.tasks);
+        const bonus = getBonus(totalMin, item.tasks);
 
         return (
           <View key={item.id} style={styles.card}>
-            <Text style={styles.teamName}>{item.teams.nazwa}</Text>
+            <Text style={styles.teamName}>{item.teams.nazwa} 🚩</Text>
             <Text style={styles.taskTitle}>{item.tasks.tytul}</Text>
             
-            <View style={styles.timeBox}>
-              <Text style={styles.timeLabel}>CZAS NETTO (PO PAUZACH):</Text>
-              <Text style={styles.timeValue}>{display}</Text>
-              <Text style={styles.bonusLabel}>SUGEROWANY BONUS: +{bonus} PKT</Text>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoLabel}>CZAS NETTO: <Text style={styles.infoVal}>{display}</Text></Text>
+              <Text style={styles.infoLabel}>BONUS CZASOWY: <Text style={styles.bonusVal}>+{bonus} PKT</Text></Text>
             </View>
 
             <Text style={styles.answerLabel}>ODPOWIEDŹ:</Text>
-            <Text style={styles.answerText}>{item.odpowiedz_tekst || "Brak tekstu"}</Text>
+            <Text style={styles.answerText}>{item.odpowiedz_tekst}</Text>
 
             <View style={styles.btnRow}>
               <TouchableOpacity style={styles.rejectBtn} onPress={() => handleVerdict(item, false)}>
                 <Text style={styles.btnText}>ODRZUĆ</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.acceptBtn} onPress={() => handleVerdict(item, true)}>
-                <Text style={[styles.btnText, {color: '#000'}]}>ZATWIERDŹ (+{item.tasks.punkty_bazowe + bonus} PKT)</Text>
+                <Text style={styles.acceptBtnText}>ZATWIERDŹ (+{item.tasks.punkty_bazowe + bonus} PKT)</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -126,17 +121,18 @@ export default function JudgingTab() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000', padding: 20 },
   title: { color: '#fff', fontSize: 20, fontWeight: 'bold', marginBottom: 20 },
-  card: { backgroundColor: '#111', padding: 20, borderRadius: 20, marginBottom: 20, borderWidth: 1, borderColor: '#222' },
-  teamName: { color: '#ff4757', fontWeight: 'bold', fontSize: 12, letterSpacing: 2 },
-  taskTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginVertical: 5 },
-  timeBox: { backgroundColor: '#1a1a1a', padding: 15, borderRadius: 12, marginVertical: 15, borderLeftWidth: 3, borderLeftColor: '#2ed573' },
-  timeLabel: { color: '#555', fontSize: 9, fontWeight: 'bold' },
-  timeValue: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  bonusLabel: { color: '#2ed573', fontSize: 11, fontWeight: 'bold', marginTop: 5 },
-  answerLabel: { color: '#444', fontSize: 10, fontWeight: 'bold', marginTop: 10 },
+  card: { backgroundColor: '#111', padding: 20, borderRadius: 20, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
+  teamName: { color: '#ff4757', fontWeight: 'bold', fontSize: 12 },
+  taskTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', marginTop: 5 },
+  infoBox: { backgroundColor: '#1a1a1a', padding: 10, borderRadius: 10, marginVertical: 15 },
+  infoLabel: { color: '#666', fontSize: 10 },
+  infoVal: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  bonusVal: { color: '#2ed573', fontWeight: 'bold' },
+  answerLabel: { color: '#444', fontSize: 10, fontWeight: 'bold' },
   answerText: { color: '#ccc', marginVertical: 10 },
   btnRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   acceptBtn: { flex: 2, backgroundColor: '#2ed573', padding: 15, borderRadius: 12, alignItems: 'center' },
   rejectBtn: { flex: 1, backgroundColor: '#333', padding: 15, borderRadius: 12, alignItems: 'center' },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 12 }
+  btnText: { color: '#fff', fontWeight: 'bold' },
+  acceptBtnText: { color: '#000', fontWeight: 'bold' }
 });

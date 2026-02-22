@@ -1,185 +1,207 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, TextInput, Alert, ActivityIndicator, Dimensions } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { supabase } from '@/supabase';
 import { Task, TaskType, Team } from '@/types';
+
+const DOSTEPNE_ZESTAWY = Array.from({ length: 11 }, (_, i) => `Zestaw_${i}`);
 
 export default function TasksTab() {
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
+  const [miejsceOpis, setMiejsceOpis] = useState('');
+  const [zestawId, setZestawId] = useState('Zestaw_1');
   const [taskPoints, setTaskPoints] = useState('10');
-  const [taskPenalty, setTaskPenalty] = useState('5');
   const [taskType, setTaskType] = useState<TaskType>('glowne');
   
-  const [tasksList, setTasksList] = useState<Task[]>([]);
-  const [teamTasks, setTeamTasks] = useState<any[]>([]); // Relacje drużyna <-> zadanie
-  const [teams, setTeams] = useState<Team[]>([]); // Lista drużyn do rozwijanego menu
-  const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
+  // Lokalizacja GPS (Mapa)
+  const [markerCoords, setMarkerCoords] = useState<{latitude: number, longitude: number} | null>(null);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 54.4641, // Domyślnie Słupsk
+    longitude: 17.0285,
+    latitudeDelta: 0.02,
+    longitudeDelta: 0.02,
+  });
 
+  // Bramki czasu
+  const [gates, setGates] = useState({ g5: '', g4: '', g3: '', g2: '', g1: '' });
+
+  const [tasksList, setTasksList] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchZadaniaITeamy();
+    fetchTasks();
   }, []);
 
-  const fetchZadaniaITeamy = async () => {
+  const fetchTasks = async () => {
     setLoading(true);
-    const { data: tData } = await supabase.from('tasks').select('*').order('utworzono_w', { ascending: false });
-    if (tData) setTasksList(tData);
-    
-    const { data: ttData } = await supabase.from('team_tasks').select('*');
-    if (ttData) setTeamTasks(ttData);
-
-    const { data: teamsData } = await supabase.from('teams').select('*').order('nazwa', { ascending: true });
-    if (teamsData) setTeams(teamsData);
-
+    const { data } = await supabase.from('tasks').select('*').order('utworzono_w', { ascending: false });
+    if (data) setTasksList(data);
     setLoading(false);
   };
 
   const handleCreateTask = async () => {
-    if (!taskTitle.trim() || !taskDesc.trim()) return Alert.alert('Błąd', 'Podaj tytuł i opis!');
+    if (!taskTitle.trim() || !markerCoords) {
+      return Alert.alert('Błąd', 'Podaj tytuł i wybierz miejsce na mapie!');
+    }
+    
     setIsSubmitting(true);
     const { error } = await supabase.from('tasks').insert([{
-      tytul: taskTitle.trim(), opis: taskDesc.trim(), typ: taskType,
-      punkty_bazowe: parseInt(taskPoints) || 0, kara_za_pominiecie: parseInt(taskPenalty) || 0
+      tytul: taskTitle.trim(),
+      opis: taskDesc.trim(),
+      miejsce_opis: miejsceOpis.trim(),
+      zestaw_id: taskType === 'glowne' ? zestawId : null,
+      typ: taskType,
+      latitude: markerCoords.latitude,
+      longitude: markerCoords.longitude,
+      punkty_bazowe: parseInt(taskPoints) || 0,
+      // Bramki tylko dla zadań głównych
+      gate_5_min: taskType === 'glowne' ? parseInt(gates.g5) || null : null,
+      gate_4_min: taskType === 'glowne' ? parseInt(gates.g4) || null : null,
+      gate_3_min: taskType === 'glowne' ? parseInt(gates.g3) || null : null,
+      gate_2_min: taskType === 'glowne' ? parseInt(gates.g2) || null : null,
+      gate_1_min: taskType === 'glowne' ? parseInt(gates.g1) || null : null,
     }]);
+
     setIsSubmitting(false);
-    if (error) Alert.alert('Błąd', error.message);
-    else { Alert.alert('Sukces', 'Dodano zadanie!'); setTaskTitle(''); setTaskDesc(''); fetchZadaniaITeamy(); }
-  };
-
-  const usunZadanie = async (id: string, title: string) => {
-    Alert.alert('Usuń zadanie', `Czy usunąć zadanie "${title}" z bazy? Zniknie też z postępu drużyn.`, [
-      { text: 'Anuluj', style: 'cancel' },
-      { text: 'Usuń', style: 'destructive', onPress: async () => { await supabase.from('tasks').delete().eq('id', id); fetchZadaniaITeamy(); } }
-    ]);
-  };
-
-  const toggleTaskAssignment = async (taskId: string, teamId: string, isCurrentlyAssigned: boolean) => {
-    if (isCurrentlyAssigned) {
-      const { error } = await supabase.from('team_tasks').delete().match({ task_id: taskId, team_id: teamId });
-      if (error) Alert.alert('Błąd', error.message);
+    if (error) {
+      Alert.alert('Błąd', error.message);
     } else {
-      const { error } = await supabase.from('team_tasks').insert([{ task_id: taskId, team_id: teamId, status: 'aktywne' }]);
-      if (error) Alert.alert('Błąd', error.message);
+      Alert.alert('Sukces', 'Zadanie dodane!');
+      setTaskTitle(''); setTaskDesc(''); setMiejsceOpis(''); setMarkerCoords(null);
+      fetchTasks();
     }
-    const { data: ttData } = await supabase.from('team_tasks').select('*');
-    if (ttData) setTeamTasks(ttData);
-  };
-
-  // Funkcja pomocnicza do kolorków typów zadań
-  const getTypeColor = (type: TaskType) => {
-    if (type === 'special_event') return '#ffa502'; // Pomarańczowy
-    if (type === 'sidequest') return '#9b59b6'; // Fioletowy
-    return '#3742fa'; // Niebieski (Główne)
   };
 
   return (
-    <ScrollView showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>Dodaj Nowe Zadanie</Text>
+    <ScrollView style={styles.container}>
+      <Text style={styles.sectionTitle}>NOWE ZADANIE</Text>
+      
       <View style={styles.formBox}>
-        <TextInput style={styles.input} placeholder="Krótki tytuł (np. Wjazd do rzeki)" placeholderTextColor="#888" value={taskTitle} onChangeText={setTaskTitle} />
-        <TextInput style={[styles.input, {height: 80, textAlignVertical: 'top'}]} placeholder="Szczegółowy opis dla graczy..." placeholderTextColor="#888" multiline value={taskDesc} onChangeText={setTaskDesc} />
+        <TextInput 
+          style={styles.input} 
+          placeholder="Tytuł misji..." 
+          placeholderTextColor="#666" 
+          value={taskTitle} 
+          onChangeText={setTaskTitle} 
+        />
         
-        <View style={{flexDirection: 'row', gap: 10}}>
-          <View style={{flex: 1}}><Text style={styles.label}>Punkty:</Text><TextInput style={styles.input} keyboardType="numeric" value={taskPoints} onChangeText={setTaskPoints} /></View>
-          <View style={{flex: 1}}><Text style={styles.label}>Kara (-):</Text><TextInput style={styles.input} keyboardType="numeric" value={taskPenalty} onChangeText={setTaskPenalty} /></View>
+        <TextInput 
+          style={[styles.input, {height: 60}]} 
+          placeholder="Wskazówka dojazdu (np. Czerwona brama przy rzece)" 
+          placeholderTextColor="#666" 
+          multiline 
+          value={miejsceOpis} 
+          onChangeText={setMiejsceOpis} 
+        />
+
+        <Text style={styles.label}>TYP ZADANIA:</Text>
+        <View style={styles.row}>
+          {(['glowne', 'sidequest', 'special_event'] as TaskType[]).map(t => (
+            <TouchableOpacity 
+              key={t} 
+              style={[styles.typeBtn, taskType === t && styles.typeBtnActive]} 
+              onPress={() => setTaskType(t)}
+            >
+              <Text style={styles.typeBtnText}>{t === 'glowne' ? 'GŁÓWNE' : t === 'sidequest' ? 'POBOCZNE' : 'SPECJALNE'}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
-        <Text style={styles.label}>Typ Zadania:</Text>
-        <View style={styles.row}>
-          <TouchableOpacity style={[styles.roleBtn, taskType === 'glowne' && {backgroundColor: getTypeColor('glowne'), borderColor: getTypeColor('glowne')}]} onPress={() => setTaskType('glowne')}>
-            <Text style={styles.roleBtnText}>GŁÓWNE (Dla wybranych)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.roleBtn, taskType === 'sidequest' && {backgroundColor: getTypeColor('sidequest'), borderColor: getTypeColor('sidequest')}]} onPress={() => setTaskType('sidequest')}>
-            <Text style={styles.roleBtnText}>POBOCZNE (Dla wszystkich)</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.roleBtn, taskType === 'special_event' && {backgroundColor: getTypeColor('special_event'), borderColor: getTypeColor('special_event')}]} onPress={() => setTaskType('special_event')}>
-            <Text style={styles.roleBtnText}>SPECIAL (Kto pierwszy)</Text>
-          </TouchableOpacity>
+        {/* Sekcja widoczna tylko dla zadań głównych */}
+        {taskType === 'glowne' && (
+          <View style={styles.conditionalSection}>
+            <Text style={styles.label}>PRZYPISZ DO ZESTAWU:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.setRow}>
+              {DOSTEPNE_ZESTAWY.map(s => (
+                <TouchableOpacity 
+                  key={s} 
+                  style={[styles.setBtn, zestawId === s && styles.setBtnActive]} 
+                  onPress={() => setZestawId(s)}
+                >
+                  <Text style={styles.setBtnText}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.label}>BRAMKI CZASU (MAX MINUTY DLA BONUSU):</Text>
+            <View style={styles.row}>
+              <TextInput style={styles.gateInput} placeholder="+5p" placeholderTextColor="#444" onChangeText={v => setGates({...gates, g5: v})} keyboardType="numeric" />
+              <TextInput style={styles.gateInput} placeholder="+4p" placeholderTextColor="#444" onChangeText={v => setGates({...gates, g4: v})} keyboardType="numeric" />
+              <TextInput style={styles.gateInput} placeholder="+3p" placeholderTextColor="#444" onChangeText={v => setGates({...gates, g3: v})} keyboardType="numeric" />
+              <TextInput style={styles.gateInput} placeholder="+2p" placeholderTextColor="#444" onChangeText={v => setGates({...gates, g2: v})} keyboardType="numeric" />
+              <TextInput style={styles.gateInput} placeholder="+1p" placeholderTextColor="#444" onChangeText={v => setGates({...gates, g1: v})} keyboardType="numeric" />
+            </View>
+          </View>
+        )}
+
+        <Text style={styles.label}>WYBIERZ LOKALIZACJĘ NA MAPIE:</Text>
+        <View style={styles.mapContainer}>
+          <MapView 
+            style={styles.map} 
+            initialRegion={mapRegion}
+            onPress={(e) => setMarkerCoords(e.nativeEvent.coordinate)}
+          >
+            {markerCoords && <Marker coordinate={markerCoords} pinColor="#ff4757" />}
+          </MapView>
+          {markerCoords && <Text style={styles.gpsOk}>✅ Punkt ustawiony</Text>}
         </View>
+
+        <TextInput 
+          style={[styles.input, {height: 80, marginTop: 15}]} 
+          placeholder="Pełna treść zadania (ukryta do czasu dojazdu)..." 
+          placeholderTextColor="#666" 
+          multiline 
+          value={taskDesc} 
+          onChangeText={setTaskDesc} 
+        />
 
         <TouchableOpacity style={styles.submitBtn} onPress={handleCreateTask} disabled={isSubmitting}>
-          {isSubmitting ? <ActivityIndicator color="#000" /> : <Text style={styles.submitBtnText}>DODAJ DO BAZY</Text>}
+          {isSubmitting ? <ActivityIndicator color="#000" /> : <Text style={styles.submitBtnText}>ZAPISZ MISJĘ</Text>}
         </TouchableOpacity>
       </View>
 
-      <Text style={[styles.sectionTitle, {marginTop: 30}]}>Zarządzanie Zadaniami ({tasksList.length})</Text>
-      {loading ? <ActivityIndicator color="#ff4757" style={{marginTop: 20}} /> : (
-        tasksList.map(task => {
-          const isExpanded = expandedTaskId === task.id;
-          
-          return (
-          <View key={task.id} style={styles.card}>
-            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
-              <View style={{flex: 1, paddingRight: 10}}>
-                <Text style={styles.cardTitle}>{task.tytul}</Text>
-                <Text style={{color: '#ccc', fontSize: 13, marginVertical: 4}}>{task.opis}</Text>
-                <Text style={styles.cardSub}>
-                  Typ: <Text style={{color: getTypeColor(task.typ), fontWeight: 'bold'}}>{task.typ.toUpperCase()}</Text> | Pkt: {task.punkty_bazowe}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => usunZadanie(task.id, task.tytul)}>
-                <Text style={styles.deleteText}>Usuń</Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Rozwijane menu przypisywania TYLKO dla zadań GŁÓWNYCH */}
-            {task.typ === 'glowne' && (
-              <View style={{marginTop: 15, borderTopWidth: 1, borderTopColor: '#333', paddingTop: 10}}>
-                <TouchableOpacity onPress={() => setExpandedTaskId(isExpanded ? null : task.id)} style={{backgroundColor: '#2a2a2a', padding: 10, borderRadius: 5, alignItems: 'center'}}>
-                  <Text style={{color: '#fff', fontWeight: 'bold'}}>{isExpanded ? 'Zwiń przypisania ▲' : 'Przypisz do drużyn ▼'}</Text>
-                </TouchableOpacity>
-
-                {isExpanded && (
-                  <View style={{marginTop: 10}}>
-                    {teams.length === 0 && <Text style={{color: '#888'}}>Brak drużyn w bazie.</Text>}
-                    {teams.map(team => {
-                      const isAssigned = teamTasks.some(tt => tt.task_id === task.id && tt.team_id === team.id);
-                      return (
-                        <TouchableOpacity 
-                          key={team.id} 
-                          style={[styles.teamAssignRow, isAssigned && {borderColor: '#2ed573', backgroundColor: 'rgba(46, 213, 115, 0.1)'}]}
-                          onPress={() => toggleTaskAssignment(task.id, team.id, isAssigned)}
-                        >
-                          <Text style={{color: isAssigned ? '#2ed573' : '#fff'}}>{team.nazwa}</Text>
-                          <Text style={{color: isAssigned ? '#2ed573' : '#888'}}>{isAssigned ? 'ZAZNACZONE ✓' : 'Brak'}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            )}
-            
-            {/* Informacja dla zadań pobocznych i specjalnych */}
-            {task.typ !== 'glowne' && (
-              <Text style={{color: '#888', fontSize: 12, marginTop: 10, fontStyle: 'italic'}}>
-                To zadanie jest globalne i widoczne od razu dla wszystkich drużyn.
-              </Text>
-            )}
-          </View>
-        )})
-      )}
+      <Text style={styles.sectionTitle}>ISTNIEJĄCE ZADANIA ({tasksList.length})</Text>
+      {tasksList.map(task => (
+        <View key={task.id} style={styles.card}>
+          <Text style={styles.cardTitle}>{task.tytul}</Text>
+          <Text style={styles.cardInfo}>{task.typ.toUpperCase()} {task.zestaw_id ? `| ${task.zestaw_id}` : ''}</Text>
+        </View>
+      ))}
       <View style={{height: 50}} />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  sectionTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff', marginBottom: 15 },
-  formBox: { backgroundColor: '#111', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#222' },
-  input: { backgroundColor: '#1e1e1e', color: '#fff', padding: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
-  label: { color: '#aaa', marginTop: 10, marginBottom: 5, fontSize: 14, fontWeight: 'bold' },
-  row: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 15 },
-  roleBtn: { paddingVertical: 10, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#444', backgroundColor: '#1e1e1e', flex: 1, alignItems: 'center' },
-  roleBtnActive: { backgroundColor: '#3742fa', borderColor: '#3742fa' },
-  roleBtnText: { color: '#fff', fontSize: 11, fontWeight: 'bold', textAlign: 'center' },
-  submitBtn: { backgroundColor: '#2ed573', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
-  submitBtnText: { color: '#000', fontSize: 16, fontWeight: 'bold' },
-  card: { backgroundColor: '#1e1e1e', padding: 15, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#333' },
-  cardTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  cardSub: { color: '#888', fontSize: 12, marginTop: 4 },
-  deleteText: { color: '#ff4757', fontWeight: 'bold', padding: 5 },
-  teamAssignRow: { flexDirection: 'row', justifyContent: 'space-between', padding: 12, borderWidth: 1, borderColor: '#333', borderRadius: 5, marginBottom: 5, backgroundColor: '#111' }
+  container: { flex: 1, backgroundColor: '#000' },
+  sectionTitle: { color: '#fff', fontSize: 18, fontWeight: 'bold', padding: 20, paddingBottom: 5 },
+  formBox: { backgroundColor: '#111', padding: 20, margin: 15, borderRadius: 20, borderWidth: 1, borderColor: '#222' },
+  input: { backgroundColor: '#000', color: '#fff', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#333' },
+  label: { color: '#444', fontSize: 10, fontWeight: 'bold', marginBottom: 8, marginTop: 10, letterSpacing: 1 },
+  row: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  
+  typeBtn: { flex: 1, padding: 12, borderRadius: 10, backgroundColor: '#1a1a1a', alignItems: 'center', borderWidth: 1, borderColor: '#333' },
+  typeBtnActive: { backgroundColor: '#ff4757', borderColor: '#ff4757' },
+  typeBtnText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+
+  conditionalSection: { borderTopWidth: 1, borderTopColor: '#222', marginTop: 10, paddingTop: 10 },
+  setRow: { flexDirection: 'row', marginBottom: 15 },
+  setBtn: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 8, backgroundColor: '#222', marginRight: 8 },
+  setBtnActive: { backgroundColor: '#3742fa' },
+  setBtnText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+
+  gateInput: { flex: 1, backgroundColor: '#000', color: '#fff', padding: 10, borderRadius: 8, textAlign: 'center', fontSize: 12, borderWidth: 1, borderColor: '#333' },
+
+  mapContainer: { height: 200, borderRadius: 15, overflow: 'hidden', marginTop: 5, borderWidth: 1, borderColor: '#333' },
+  map: { flex: 1 },
+  gpsOk: { position: 'absolute', bottom: 10, right: 10, backgroundColor: 'rgba(0,0,0,0.8)', color: '#2ed573', padding: 5, borderRadius: 5, fontSize: 10, fontWeight: 'bold' },
+
+  submitBtn: { backgroundColor: '#2ed573', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 25 },
+  submitBtnText: { color: '#000', fontWeight: 'bold', fontSize: 16 },
+
+  card: { backgroundColor: '#111', padding: 15, marginHorizontal: 20, marginBottom: 10, borderRadius: 12, borderWidth: 1, borderColor: '#222' },
+  cardTitle: { color: '#fff', fontWeight: 'bold' },
+  cardInfo: { color: '#444', fontSize: 10, marginTop: 4 }
 });

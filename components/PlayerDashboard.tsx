@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, Text, View, TouchableOpacity, 
-  ActivityIndicator, SafeAreaView, Platform, Alert, TextInput 
+  ActivityIndicator, SafeAreaView, Platform, Alert, TextInput, Modal
 } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import QRCode from 'react-native-qrcode-svg';
 import { supabase } from '@/supabase';
 import { Profile, Team } from '@/types';
 
@@ -22,10 +24,13 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
   const [team, setTeam] = useState<Team | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'tasks' | 'ranking' | 'map'>('tasks');
-  const [joinCode, setJoinCode] = useState('');
+  
+  // Stany dla QR i formularzy
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanning, setScanning] = useState(false);
+  const [newTeamName, setNewTeamName] = useState('');
 
   useEffect(() => {
-    // 1. Subskrypcja profilu - reaguje na zmiany roli lub team_id od Admina
     const profileSub = supabase.channel(`profile_sync_${userProfile.id}`)
       .on('postgres_changes', { 
         event: 'UPDATE', 
@@ -41,7 +46,6 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
   }, []);
 
   useEffect(() => {
-    // 2. Pobierz dane drużyny, jeśli gracz ma przypisane team_id
     if (userProfile.team_id) {
       fetchTeamData(userProfile.team_id);
     } else {
@@ -51,34 +55,36 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
   }, [userProfile.team_id]);
 
   const fetchTeamData = async (teamId: string) => {
+    setLoading(true);
     const { data, error } = await supabase
       .from('teams')
       .select('*')
       .eq('id', teamId)
-      .single();
+      .maybeSingle();
 
     if (data) setTeam(data as Team);
     setLoading(false);
   };
 
-  const handleJoinTeam = async () => {
-    if (!joinCode.trim()) return;
+  // LOGIKA SKANOWANIA
+  const handleBarCodeScanned = async ({ data }: { data: string }) => {
+    if (!scanning) return;
+    setScanning(false);
     setLoading(true);
 
-    // Szukamy drużyny po kodzie
+    // Sprawdzamy czy zeskanowany tekst to ID drużyny (UUID) lub kod
     const { data: teamData, error: teamError } = await supabase
       .from('teams')
-      .select('id')
-      .eq('kod_dolaczenia', joinCode.trim().toUpperCase())
+      .select('id, nazwa')
+      .eq('kod_dolaczenia', data.trim().toUpperCase())
       .single();
 
     if (teamError || !teamData) {
-      Alert.alert("Błąd", "Nieprawidłowy kod drużyny.");
+      Alert.alert("Błąd QR", "Nie rozpoznano kodu drużyny.");
       setLoading(false);
       return;
     }
 
-    // Przypisujemy gracza do drużyny
     const { error: updateError } = await supabase
       .from('profiles')
       .update({ team_id: teamData.id })
@@ -86,15 +92,56 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
 
     if (updateError) {
       Alert.alert("Błąd", "Nie udało się dołączyć do drużyny.");
+    } else {
+      Alert.alert("Sukces", `Dołączono do drużyny ${teamData.nazwa}!`);
     }
     setLoading(false);
   };
 
-  if (loading) {
+  const startScanner = async () => {
+    if (!permission?.granted) {
+      const res = await requestPermission();
+      if (!res.granted) {
+        Alert.alert("Brak uprawnień", "Musisz zezwolić na dostęp do aparatu, aby skanować QR.");
+        return;
+      }
+    }
+    setScanning(true);
+  };
+
+  // LOGIKA DLA LIDERA: Tworzenie
+  const handleCreateTeam = async () => {
+    if (!newTeamName.trim()) return Alert.alert("Błąd", "Podaj nazwę drużyny!");
+    setLoading(true);
+
+    const generatedCode = (Math.random().toString(36).substring(2, 5) + Math.random().toString(10).substring(2, 5)).toUpperCase();
+
+    const { data: newTeam, error: createError } = await supabase
+      .from('teams')
+      .insert([{ 
+        nazwa: newTeamName.trim(), 
+        kod_dolaczenia: generatedCode,
+        punkty: 0,
+        target_main_tasks: 8 
+      }])
+      .select()
+      .single();
+
+    if (createError || !newTeam) {
+      Alert.alert("Błąd", "Nie udało się utworzyć drużyny.");
+      setLoading(false);
+      return;
+    }
+
+    await supabase.from('profiles').update({ team_id: newTeam.id }).eq('id', userProfile.id);
+    setLoading(false);
+  };
+
+  if (loading && userProfile.team_id && !team) {
     return (
       <View style={styles.centered}>
         <ActivityIndicator size="large" color="#ff4757" />
-        <Text style={styles.loadingText}>SYNCHRONIZACJA Z BAZĄ...</Text>
+        <Text style={styles.loadingText}>SYNCHRONIZACJA...</Text>
       </View>
     );
   }
@@ -105,81 +152,94 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
       <SafeAreaView style={styles.container}>
         <View style={styles.noTeamBox}>
           <Text style={styles.noTeamTitle}>WITAJ, {userProfile.imie_pseudonim.toUpperCase()}</Text>
-          <Text style={styles.noTeamSub}>Nie jesteś jeszcze w żadnej drużynie operacyjnej.</Text>
           
-          <View style={styles.joinCard}>
-            <Text style={styles.label}>WPISZ KOD DRUŻYNY:</Text>
-            <TextInput 
-              style={styles.input}
-              placeholder="NP. ALFA-123"
-              placeholderTextColor="#444"
-              autoCapitalize="characters"
-              value={joinCode}
-              onChangeText={setJoinCode}
-            />
-            <TouchableOpacity style={styles.btnJoin} onPress={handleJoinTeam}>
-              <Text style={styles.btnText}>DOŁĄCZ DO EKIPY</Text>
-            </TouchableOpacity>
-          </View>
+          {userProfile.is_leader ? (
+            <View style={styles.joinCard}>
+              <Text style={styles.label}>JESTEŚ LIDEREM - UTWÓRZ DRUŻYNĘ:</Text>
+              <TextInput 
+                style={styles.input}
+                placeholder="NAZWA DRUŻYNY"
+                placeholderTextColor="#444"
+                value={newTeamName}
+                onChangeText={setNewTeamName}
+              />
+              <TouchableOpacity style={[styles.btnJoin, {backgroundColor: '#2ed573'}]} onPress={handleCreateTeam}>
+                <Text style={styles.btnText}>ZAŁÓŻ ZESPÓŁ</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.joinCard}>
+              <Text style={styles.label}>ZESKANUJ KOD QR OD SWOJEGO LIDERA:</Text>
+              <TouchableOpacity style={styles.btnJoin} onPress={startScanner}>
+                <Text style={styles.btnText}>📷 SKANUJ KOD QR</Text>
+              </TouchableOpacity>
+            </View>
+          )}
 
           <TouchableOpacity onPress={onLogout} style={styles.logoutLink}>
-            <Text style={styles.logoutLinkText}>WYLOGUJ</Text>
+            <Text style={styles.logoutLinkText}>WYLOGUJ MNIE</Text>
           </TouchableOpacity>
         </View>
+
+        {/* MODAL SKANERA */}
+        <Modal visible={scanning} animationType="slide">
+          <CameraView 
+            style={styles.scanner} 
+            onBarcodeScanned={handleBarCodeScanned}
+            barcodeScannerSettings={{ barcodeTypes: ["qr"] }}
+          >
+            <View style={styles.scannerOverlay}>
+              <View style={styles.scannerFrame} />
+              <TouchableOpacity style={styles.cancelScan} onPress={() => setScanning(false)}>
+                <Text style={styles.cancelScanText}>ANULUJ</Text>
+              </TouchableOpacity>
+            </View>
+          </CameraView>
+        </Modal>
       </SafeAreaView>
     );
   }
 
-  // WIDOK: GŁÓWNY DASHBOARD GRACZA
+  // WIDOK: GŁÓWNY PANEL
   return (
     <SafeAreaView style={styles.container}>
-      {/* MODALE SPECJALNE (Zawsze na wierzchu) */}
       <GlobalAlertModal />
       <SpecialEventModal userProfile={userProfile} />
 
-      {/* HEADER: INFO O DRUŻYNIE */}
       <View style={styles.header}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.teamName}>{team.nazwa.toUpperCase()}</Text>
           <Text style={styles.playerName}>{userProfile.imie_pseudonim} ({userProfile.rola})</Text>
+          <View style={styles.qrContainer}>
+            <QRCode value={team.kod_dolaczenia} size={60} backgroundColor="transparent" color="white" />
+            <Text style={styles.codeInfo}>{team.kod_dolaczenia}</Text>
+          </View>
         </View>
-        <View style={styles.scoreBox}>
-          <Text style={styles.scoreLabel}>PUNKTY</Text>
-          <Text style={styles.scoreValue}>{team.punkty}</Text>
+
+        <View style={styles.headerRight}>
+          <View style={styles.scoreBox}>
+            <Text style={styles.scoreValue}>{team.punkty} PKT</Text>
+          </View>
+          <TouchableOpacity onPress={onLogout} style={styles.smallLogoutBtn}>
+            <Text style={styles.smallLogoutText}>WYJDŹ</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* GŁÓWNA TREŚĆ (ZALEŻNA OD TABU) */}
       <View style={{ flex: 1 }}>
         {activeTab === 'tasks' && <TasksPlayerView team={team} userProfile={userProfile} />}
         {activeTab === 'ranking' && <Leaderboard />}
-        {activeTab === 'map' && <View style={styles.placeholder}><Text style={{color: '#fff'}}>Mapa w przygotowaniu...</Text></View>}
+        {activeTab === 'map' && <View style={styles.placeholder}><Text style={{color: '#444'}}>Mapa wkrótce...</Text></View>}
       </View>
 
-      {/* NAWIGACJA DOLNA */}
       <View style={styles.tabBar}>
-        <TouchableOpacity 
-          style={styles.tabItem} 
-          onPress={() => setActiveTab('tasks')}
-        >
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('tasks')}>
           <Text style={[styles.tabIcon, activeTab === 'tasks' && styles.tabActive]}>🎯</Text>
           <Text style={[styles.tabLabel, activeTab === 'tasks' && styles.tabActive]}>MISJE</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.tabItem} 
-          onPress={() => setActiveTab('ranking')}
-        >
+        <TouchableOpacity style={styles.tabItem} onPress={() => setActiveTab('ranking')}>
           <Text style={[styles.tabIcon, activeTab === 'ranking' && styles.tabActive]}>🏆</Text>
           <Text style={[styles.tabLabel, activeTab === 'ranking' && styles.tabActive]}>RANKING</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.tabItem} 
-          onPress={() => setActiveTab('map')}
-        >
-          <Text style={[styles.tabIcon, activeTab === 'map' && styles.tabActive]}>🗺️</Text>
-          <Text style={[styles.tabLabel, activeTab === 'map' && styles.tabActive]}>MAPA</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -189,38 +249,44 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   centered: { flex: 1, backgroundColor: '#000', justifyContent: 'center', alignItems: 'center' },
-  loadingText: { color: '#444', marginTop: 15, fontWeight: 'bold', letterSpacing: 1 },
+  loadingText: { color: '#444', marginTop: 15, fontWeight: 'bold' },
   header: { 
     flexDirection: 'row', 
     justifyContent: 'space-between', 
     padding: 20, 
     borderBottomWidth: 1, 
     borderBottomColor: '#111',
+    alignItems: 'flex-start',
     paddingTop: Platform.OS === 'android' ? 40 : 10
   },
-  teamName: { color: '#ff4757', fontWeight: 'black', fontSize: 20, letterSpacing: 1 },
-  playerName: { color: '#555', fontSize: 12, fontWeight: 'bold' },
-  scoreBox: { alignItems: 'flex-end', backgroundColor: '#111', paddingHorizontal: 15, paddingVertical: 5, borderRadius: 10 },
-  scoreLabel: { color: '#444', fontSize: 8, fontWeight: 'bold' },
-  scoreValue: { color: '#2ed573', fontSize: 18, fontWeight: 'bold' },
-  
-  // No Team Styles
+  headerRight: { alignItems: 'flex-end' },
+  teamName: { color: '#ff4757', fontWeight: 'bold', fontSize: 18 },
+  playerName: { color: '#555', fontSize: 10, fontWeight: 'bold' },
+  qrContainer: { marginTop: 10, alignItems: 'center', alignSelf: 'flex-start', padding: 5, backgroundColor: '#111', borderRadius: 8 },
+  codeInfo: { color: '#fff', fontSize: 10, fontWeight: 'bold', marginTop: 5, letterSpacing: 2 },
+  scoreBox: { backgroundColor: '#111', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
+  scoreValue: { color: '#2ed573', fontSize: 14, fontWeight: 'bold' },
+  smallLogoutBtn: { marginTop: 8, padding: 5 },
+  smallLogoutText: { color: '#333', fontSize: 9, fontWeight: 'bold', textDecorationLine: 'underline' },
   noTeamBox: { flex: 1, justifyContent: 'center', padding: 30 },
   noTeamTitle: { color: '#fff', fontSize: 24, fontWeight: 'bold', textAlign: 'center' },
-  noTeamSub: { color: '#666', textAlign: 'center', marginTop: 10, marginBottom: 40 },
-  joinCard: { backgroundColor: '#111', padding: 25, borderRadius: 25, borderWidth: 1, borderColor: '#222' },
-  label: { color: '#ff4757', fontSize: 10, fontWeight: 'bold', marginBottom: 10, letterSpacing: 1 },
-  input: { backgroundColor: '#000', color: '#fff', padding: 15, borderRadius: 12, fontSize: 18, fontWeight: 'bold', textAlign: 'center', borderWidth: 1, borderColor: '#333', marginBottom: 20 },
+  joinCard: { backgroundColor: '#111', padding: 25, borderRadius: 20, borderWidth: 1, borderColor: '#222', marginTop: 20 },
+  label: { color: '#ff4757', fontSize: 10, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+  input: { backgroundColor: '#000', color: '#fff', padding: 15, borderRadius: 12, fontSize: 18, fontWeight: 'bold', textAlign: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#333' },
   btnJoin: { backgroundColor: '#fff', padding: 18, borderRadius: 12, alignItems: 'center' },
   btnText: { color: '#000', fontWeight: 'bold' },
-  logoutLink: { marginTop: 30, alignItems: 'center' },
-  logoutLinkText: { color: '#333', fontSize: 12, fontWeight: 'bold', textDecorationLine: 'underline' },
-
-  // Tabs
-  tabBar: { flexDirection: 'row', backgroundColor: '#0a0a0a', borderTopWidth: 1, borderTopColor: '#111', paddingBottom: Platform.OS === 'ios' ? 25 : 10, paddingTop: 10 },
+  logoutLink: { marginTop: 40, alignItems: 'center' },
+  logoutLinkText: { color: '#444', fontSize: 12, textDecorationLine: 'underline' },
+  tabBar: { flexDirection: 'row', backgroundColor: '#0a0a0a', paddingBottom: Platform.OS === 'ios' ? 25 : 15, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#111' },
   tabItem: { flex: 1, alignItems: 'center' },
-  tabIcon: { fontSize: 20, opacity: 0.4 },
-  tabLabel: { color: '#444', fontSize: 9, fontWeight: 'bold', marginTop: 4 },
+  tabIcon: { fontSize: 20, opacity: 0.3 },
+  tabLabel: { color: '#444', fontSize: 9, fontWeight: 'bold' },
   tabActive: { color: '#fff', opacity: 1 },
-  placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center' }
+  placeholder: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  // Scanner
+  scanner: { flex: 1 },
+  scannerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  scannerFrame: { width: 250, height: 250, borderWidth: 2, borderColor: '#ff4757', borderRadius: 20, backgroundColor: 'transparent' },
+  cancelScan: { marginTop: 40, backgroundColor: '#fff', paddingHorizontal: 30, paddingVertical: 15, borderRadius: 12 },
+  cancelScanText: { color: '#000', fontWeight: 'bold' }
 });

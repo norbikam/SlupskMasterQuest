@@ -120,8 +120,8 @@ export default function App() {
   return (
     <SafeAreaProvider>
     <View style={styles.container}>
-      <Text style={styles.title}>MIEJSKA DŻUNGLA</Text>
-      <Text style={styles.subtitle}>Zaloguj się swoimi tajnymi danymi</Text>
+      <Text style={styles.title}>SłupskMasterQuest 2.0</Text>
+      <Text style={styles.subtitle}>Zaloguj się</Text>
       
       <TextInput
         style={styles.input}
