@@ -1,98 +1,222 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+// App.tsx
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, Text, View, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '@/supabase';
+import { Profile } from '@/types';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+// Importujemy nasz panel Organizatora
+import OrganizerDashboard from '@/components/OrganizerDashboard';
+import PlayerDashboard from '@/components/PlayerDashboard';
+import SpecialEventModal from '@/components/SpecialEventModal';
 
-export default function HomeScreen() {
+export default function App() {
+  // Stan formularza logowania
+  const [login, setLogin] = useState<string>('');
+  const [password, setPassword] = useState<string>('');
+  
+  // Stan sesji
+  const [userProfile, setUserProfile] = useState<Profile | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+
+  // Wczytywanie zapisanej sesji przy uruchomieniu aplikacji
+  useEffect(() => {
+    const checkSession = async () => {
+      try {
+        const storedId = await AsyncStorage.getItem('user_id');
+        if (storedId) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', storedId)
+            .single<Profile>();
+            
+          if (data && !error) {
+            setUserProfile(data);
+          } else {
+            // Jeśli wystąpił błąd lub użytkownik został usunięty z bazy, czyścimy pamięć
+            await AsyncStorage.removeItem('user_id');
+          }
+        }
+      } catch (error) {
+        console.error('Błąd odczytu sesji:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    checkSession();
+  }, []);
+
+  // Obsługa logowania
+  const handleLogin = async () => {
+    if (login.trim() === '' || password.trim() === '') {
+      Alert.alert('Błąd', 'Podaj login i hasło!');
+      return;
+    }
+
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('login', login.trim().toLowerCase()) // Zapobiega błędom, gdy ktoś wpisze login wielką literą
+      .eq('haslo', password.trim())
+      .single<Profile>();
+
+    if (error || !data) {
+      Alert.alert('Błąd Logowania', 'Nieprawidłowy login lub hasło! Skontaktuj się z organizatorem.');
+      setLoading(false);
+      return;
+    }
+
+    // Zapisujemy ID do pamięci i ustawiamy profil w stanie aplikacji
+    await AsyncStorage.setItem('user_id', data.id);
+    setUserProfile(data);
+    setLoading(false);
+  };
+
+  // Obsługa wylogowania
+  const handleLogout = async () => {
+    await AsyncStorage.removeItem('user_id');
+    setUserProfile(null);
+    setLogin('');
+    setPassword('');
+  };
+
+  // 1. EKRAN ŁADOWANIA
+  if (loading) {
+    return (
+      <SafeAreaProvider>
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#ff4757" />
+        <Text style={styles.loadingText}>Łączenie z bazą dżungli...</Text>
+      </View>
+      </SafeAreaProvider>
+    );
+  }
+
+  // 2. EKRAN PO ZALOGOWANIU
+  if (userProfile) {
+    // 🔴 KONTO ORGANIZATORA (WIDOK GOD MODE)
+    if (userProfile.rola === 'organizator') {
+      return(
+        <SafeAreaProvider>
+        <OrganizerDashboard userProfile={userProfile} onLogout={handleLogout} />
+        </SafeAreaProvider>);
+    }
+
+    // 🔵 KONTO GRACZA LUB LIDERA
+    return (<>
+    <SafeAreaProvider>
+    <SpecialEventModal userProfile={userProfile} />
+    <PlayerDashboard userProfile={userProfile} onLogout={handleLogout} />
+    </SafeAreaProvider>
+  </>
+  );
+  }
+
+  // 3. EKRAN LOGOWANIA (Domyślny)
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <SafeAreaProvider>
+    <View style={styles.container}>
+      <Text style={styles.title}>MIEJSKA DŻUNGLA</Text>
+      <Text style={styles.subtitle}>Zaloguj się swoimi tajnymi danymi</Text>
+      
+      <TextInput
+        style={styles.input}
+        placeholder="Twój login..."
+        placeholderTextColor="#888"
+        value={login}
+        onChangeText={setLogin}
+        autoCapitalize="none"
+        autoCorrect={false}
+      />
+      
+      <TextInput
+        style={styles.input}
+        placeholder="Twoje hasło..."
+        placeholderTextColor="#888"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry // Gwiazdki zamiast tekstu (ukrywa hasło)
+      />
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+      <TouchableOpacity style={styles.button} onPress={handleLogin}>
+        <Text style={styles.buttonText}>WEJDŹ DO GRY</Text>
+      </TouchableOpacity>
+    </View>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
+  centerContainer: {
+    flex: 1,
+    backgroundColor: '#121212',
+    justifyContent: 'center',
     alignItems: 'center',
-    gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  loadingText: {
+    color: '#ff4757',
+    marginTop: 15,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  container: { 
+    flex: 1, 
+    backgroundColor: '#121212', 
+    justifyContent: 'center', 
+    padding: 20 
   },
+  title: { 
+    fontSize: 32, 
+    fontWeight: 'bold', 
+    color: '#fff', 
+    textAlign: 'center', 
+    marginBottom: 10 
+  },
+  subtitle: { 
+    fontSize: 16, 
+    color: '#aaa', 
+    textAlign: 'center', 
+    marginBottom: 20 
+  },
+  input: { 
+    backgroundColor: '#1e1e1e', 
+    color: '#fff', 
+    fontSize: 18, 
+    padding: 15, 
+    borderRadius: 8, 
+    borderWidth: 1, 
+    borderColor: '#333', 
+    marginBottom: 20 
+  },
+  button: { 
+    backgroundColor: '#ff4757', 
+    padding: 15, 
+    borderRadius: 8, 
+    alignItems: 'center',
+    marginTop: 10
+  },
+  logoutButton: {
+    backgroundColor: '#333', 
+    padding: 15, 
+    borderRadius: 8, 
+    alignItems: 'center',
+    marginTop: 40
+  },
+  buttonText: { 
+    color: '#fff', 
+    fontSize: 18, 
+    fontWeight: 'bold' 
+  },
+  placeholderBox: {
+    backgroundColor: '#1a1a1a',
+    padding: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#333',
+    marginTop: 20
+  }
 });
