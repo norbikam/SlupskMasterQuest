@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "SlupskMasterQuest",
-    "slug": "SlupskMasterQuest",
+    "slug": "slupskmasterquest",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -43,6 +43,19 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c9201773-e482-4ca5-a8ce-e1e945effe4d"
+      }
+    },
+    "owner": "norbikam-dev",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c9201773-e482-4ca5-a8ce-e1e945effe4d"
     }
   }
 }

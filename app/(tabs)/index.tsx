@@ -90,7 +90,7 @@ export default function App() {
       <SafeAreaProvider>
       <View style={styles.centerContainer}>
         <ActivityIndicator size="large" color="#ff4757" />
-        <Text style={styles.loadingText}>Łączenie z bazą dżungli...</Text>
+        <Text style={styles.loadingText}>Ładowanie...</Text>
       </View>
       </SafeAreaProvider>
     );
@@ -121,7 +121,7 @@ export default function App() {
     <SafeAreaProvider>
     <View style={styles.container}>
       <Text style={styles.title}>SłupskMasterQuest 2.0</Text>
-      <Text style={styles.subtitle}>Zaloguj się</Text>
+      <Text style={styles.subtitle}>18.07.2026</Text>
       
       <TextInput
         style={styles.input}
@@ -178,7 +178,7 @@ const styles = StyleSheet.create({
   },
   subtitle: { 
     fontSize: 16, 
-    color: '#aaa', 
+    color: '#e31010', 
     textAlign: 'center', 
     marginBottom: 20 
   },

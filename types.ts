@@ -33,6 +33,7 @@ export interface Task {
   typ: TaskType;
   zestaw_id?: string;
   punkty_bazowe: number;
+  kara_za_odrzucenie?: number;
   latitude?: number;
   longitude?: number;
   promien_metry: number;
