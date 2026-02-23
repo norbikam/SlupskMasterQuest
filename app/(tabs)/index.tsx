@@ -114,7 +114,7 @@ export default function App() {
       <SafeAreaProvider>
         <View style={styles.centerContainer}>
           <ActivityIndicator size="large" color="#ff4757" />
-          <Text style={styles.loadingText}>Łączenie z bazą dżungli...</Text>
+          <Text style={styles.loadingText}>Ładowanie...</Text>
         </View>
       </SafeAreaProvider>
     );
@@ -139,7 +139,7 @@ export default function App() {
     <SafeAreaProvider>
       <View style={styles.container}>
         <Text style={styles.title}>SłupskMasterQuest 2.0</Text>
-        <Text style={styles.subtitle}>Zaloguj się</Text>
+        <Text style={styles.subtitle}>18.07.2026</Text>
         <TextInput style={styles.input} placeholder="Twój login..." placeholderTextColor="#888" value={login} onChangeText={setLogin} autoCapitalize="none" autoCorrect={false} />
         <TextInput style={styles.input} placeholder="Twoje hasło..." placeholderTextColor="#888" value={password} onChangeText={setPassword} secureTextEntry />
         <TouchableOpacity style={styles.button} onPress={handleLogin}>
@@ -155,7 +155,7 @@ const styles = StyleSheet.create({
   loadingText: { color: '#ff4757', marginTop: 15, fontSize: 16, fontWeight: 'bold' },
   container: { flex: 1, backgroundColor: '#121212', justifyContent: 'center', padding: 20 },
   title: { fontSize: 32, fontWeight: 'bold', color: '#fff', textAlign: 'center', marginBottom: 10 },
-  subtitle: { fontSize: 16, color: '#aaa', textAlign: 'center', marginBottom: 20 },
+  subtitle: { fontSize: 16, color: '#ff0000', textAlign: 'center', marginBottom: 20 },
   input: { backgroundColor: '#1e1e1e', color: '#fff', fontSize: 18, padding: 15, borderRadius: 8, borderWidth: 1, borderColor: '#333', marginBottom: 20 },
   button: { backgroundColor: '#ff4757', padding: 15, borderRadius: 8, alignItems: 'center', marginTop: 10 },
   buttonText: { color: '#fff', fontSize: 18, fontWeight: 'bold' }
