@@ -24,7 +24,7 @@ export default function OrganizerDashboard({ userProfile, onLogout }: { userProf
     { id: 'ranking', label: 'RANKING', icon: '🏆', color: '#F1C40F', sub: 'Wyniki live' },
     { id: 'mapa', label: 'MAPA', icon: '📍', color: '#2ED573', sub: 'Pozycje GPS' },
     { id: 'komunikaty', label: 'ALERTY', icon: '📢', color: '#FFA502', sub: 'Broadcast' },
-    { id: 'zadania', label: 'EDYCJA', icon: '⚙️', color: '#3742FA', sub: 'Zadania' },
+    { id: 'zadania', label: 'ZADANIA', icon: '⚔️', color: '#3742FA', sub: 'Dodaj usuń' },
     { id: 'konta', label: 'GRACZE', icon: '👥', color: '#7F8C8D', sub: 'Baza kont' },
     { id: 'zarzadzanie_gra', label: 'PARAMETRY', icon: '⚙️', color: '#6C5CE7', sub: 'Cele i limity' },
     { id: 'chat_imp', label: 'IMPOSTORZY', icon: '🕵️', color: '#8E44AD', sub: 'Tajny kanał' },

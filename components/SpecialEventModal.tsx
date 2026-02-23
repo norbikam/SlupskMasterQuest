@@ -8,15 +8,48 @@ export default function SpecialEventModal({ userProfile }: { userProfile: Profil
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    // 1. Sprawdzamy, czy w bazie nie wisi jakieś niezrobione zadanie specjalne (nawet jak apka była wyłączona)
+    checkActiveSpecialEvent();
+
+    // 2. Nasłuchujemy na nowe na żywo
     const channel = supabase.channel('special_events_global')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'tasks', filter: 'typ=eq.special_event' }, 
         payload => {
-          setActiveTask(payload.new as Task);
+          checkActiveSpecialEvent(); // Odśwież stan z bazy, aby weryfikacja była precyzyjna
           Vibration.vibrate([500, 200, 500]);
         }
       ).subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [userProfile.team_id]);
+
+  const checkActiveSpecialEvent = async () => {
+    if (!userProfile.team_id) return;
+    
+    // Szukamy najnowszego zadania specjalnego z bazy
+    const { data: specialTasks } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('typ', 'special_event')
+      .order('utworzono_w', { ascending: false })
+      .limit(1);
+
+    if (specialTasks && specialTasks.length > 0) {
+      const task = specialTasks[0];
+      
+      // Sprawdzamy, czy ta drużyna już kliknęła to zadanie (w_toku, zaakceptowane itp.)
+      const { data: teamTask } = await supabase
+        .from('team_tasks')
+        .select('id')
+        .eq('team_id', userProfile.team_id)
+        .eq('task_id', task.id)
+        .maybeSingle();
+
+      // Jeśli nie ma rekordu dla tej drużyny - zadanie cały czas czeka na ekranie!
+      if (!teamTask) {
+        setActiveTask(task);
+      }
+    }
+  };
 
   const handleClaim = async () => {
     if (!activeTask || !userProfile.team_id) return;
@@ -24,28 +57,34 @@ export default function SpecialEventModal({ userProfile }: { userProfile: Profil
 
     const now = new Date().toISOString();
 
-    // 1. Logika Pauzy: Znajdź aktywne zadanie główne i zapisz start pauzy
-    await supabase
-      .from('team_tasks')
-      .update({ ostatnia_pauza_start: now })
-      .eq('team_id', userProfile.team_id)
-      .eq('status', 'w_toku'); // Pauzujemy tylko to, co jest aktualnie robione
+    // Pauzowanie aktywnego zadania głównego
+    await supabase.from('team_tasks').update({ ostatnia_pauza_start: now })
+      .eq('team_id', userProfile.team_id).eq('status', 'w_toku');
 
-    // 2. Przejmij zadanie specjalne (standardowa logika)
-    const { error } = await supabase
-      .from('team_tasks')
-      .upsert([{
-        team_id: userProfile.team_id,
-        task_id: activeTask.id,
-        status: 'w_toku',
-        rozpoczecie_zadania: now // Zadanie specjalne ma swój własny czas
-      }]);
+    // Przyjęcie misji specjalnej
+    const { error } = await supabase.from('team_tasks').upsert([{
+      team_id: userProfile.team_id,
+      task_id: activeTask.id,
+      status: 'w_toku',
+      rozpoczecie_zadania: now
+    }]);
 
     if (!error) {
       setActiveTask(null);
       alert("Zadanie specjalne przyjęte! Czas zadania głównego został wstrzymany.");
     }
     setIsSubmitting(false);
+  };
+
+  // Ignorowanie tworzy pusty rekord "pominięte", żeby okienko zniknęło i nie spamowało przy kolejnym uruchomieniu
+  const handleIgnore = async () => {
+    if (!activeTask || !userProfile.team_id) return;
+    await supabase.from('team_tasks').upsert([{
+      team_id: userProfile.team_id,
+      task_id: activeTask.id,
+      status: 'pominiete'
+    }]);
+    setActiveTask(null);
   };
 
   if (!activeTask) return null;
@@ -62,8 +101,8 @@ export default function SpecialEventModal({ userProfile }: { userProfile: Profil
             {isSubmitting ? <ActivityIndicator color="#000" /> : <Text style={styles.btnText}>PRZYJMIJ I ZAPAUZUJ</Text>}
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.closeBtn} onPress={() => setActiveTask(null)}>
-            <Text style={styles.closeText}>IGNORUJ</Text>
+          <TouchableOpacity style={styles.closeBtn} onPress={handleIgnore}>
+            <Text style={styles.closeText}>IGNORUJ (ZNIKNIE NA ZAWSZE)</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -80,5 +119,5 @@ const styles = StyleSheet.create({
   acceptBtn: { backgroundColor: '#2ed573', width: '100%', padding: 20, borderRadius: 15, alignItems: 'center' },
   btnText: { fontWeight: 'bold', fontSize: 16 },
   closeBtn: { marginTop: 20 },
-  closeText: { color: '#555', fontWeight: 'bold' }
+  closeText: { color: '#666', fontWeight: 'bold', fontSize: 11 }
 });
