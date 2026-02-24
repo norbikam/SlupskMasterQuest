@@ -18,7 +18,7 @@ export default function Leaderboard() {
   }, []);
 
   const fetchData = async () => {
-    // 1. Pobieramy drużyny (w tym nową kolumnę target_main_tasks)
+    // 1. Pobieramy drużyny
     const { data: teamsData } = await supabase
       .from('teams')
       .select('id, nazwa, punkty, target_main_tasks')
@@ -26,12 +26,12 @@ export default function Leaderboard() {
 
     if (teamsData) {
       const teamsWithProgress = await Promise.all(teamsData.map(async (team) => {
-        // 2. Liczymy ukończone zadania GŁÓWNE dla tej konkretnej drużyny
+        // 2. Liczymy zadania GŁÓWNE, przez które drużyna "przeleciała" (zaakceptowane, pominięte, do oceny)
         const { count } = await supabase
           .from('team_tasks')
           .select('id, tasks!inner(typ)', { count: 'exact', head: true })
           .eq('team_id', team.id)
-          .eq('status', 'zaakceptowane')
+          .in('status', ['zaakceptowane', 'pominiete', 'do_oceny']) // <--- POPRAWIONA LINIJKA
           .eq('tasks.typ', 'glowne');
 
         return {
@@ -48,7 +48,7 @@ export default function Leaderboard() {
   if (loading) return <ActivityIndicator color="#ff4757" style={{ marginTop: 20 }} />;
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container}>
       <Text style={styles.title}>RANKING I POSTĘP OPERACJI 🏆</Text>
       
       {teams.map((item, index) => {
@@ -80,7 +80,7 @@ export default function Leaderboard() {
                     styles.progressBarFill, 
                     { 
                       width: `${Math.min(progress * 100, 100)}%`, 
-                      backgroundColor: isFinished ? '#2ed573' : '#3742fa' 
+                      backgroundColor: isFinished ? '#2ed573' : '#3498DB' // Zmieniono na niebieski, zieleń tylko na koniec
                     }
                   ]} 
                 />
@@ -89,15 +89,18 @@ export default function Leaderboard() {
           </View>
         );
       })}
-    </View>
+      
+      {/* Dodatkowy margines na dole, aby ułatwić przewijanie ostatniego elementu */}
+      <View style={{height: 40}} /> 
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: '#111', padding: 15, borderRadius: 15, marginVertical: 10 },
+  container: { flex: 1, backgroundColor: '#000', padding: 15 }, // Zmienione z marginVertical na flex: 1, dodane czarne tło
   title: { color: '#666', fontWeight: 'bold', textAlign: 'center', marginBottom: 20, fontSize: 10, letterSpacing: 2 },
-  teamRow: { marginBottom: 15, backgroundColor: '#0a0a0a', padding: 12, borderRadius: 12, borderWidth: 1, borderColor: '#222' },
-  rowFinished: { borderColor: '#2ed573' },
+  teamRow: { marginBottom: 15, backgroundColor: '#111', padding: 15, borderRadius: 15, borderWidth: 1, borderColor: '#222' },
+  rowFinished: { borderColor: '#2ed573', borderWidth: 1.5 },
   teamInfo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   teamName: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   teamPoints: { color: '#2ed573', fontWeight: 'bold', fontSize: 16 },
