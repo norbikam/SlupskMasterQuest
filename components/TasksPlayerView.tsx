@@ -22,21 +22,16 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
   const [uploadingId, setUploadingId] = useState<string | null>(null);
   const [gpsStatus, setGpsStatus] = useState('Szukam sygnału...');
   
-  // Przechowujemy globalną pozycję gracza w locie
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
-
   const [now, setNow] = useState(Date.now());
 
-  // 1. Odświeżanie timera co 1 sekundę
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // 2. Ładowanie zadań i subskrypcje bazy danych
   useEffect(() => {
     loadTasks();
-    
     const channelTT = supabase.channel('task_sync_tt')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'team_tasks', filter: `team_id=eq.${team.id}` }, () => loadTasks())
       .subscribe();
@@ -51,45 +46,25 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
     };
   }, [team.id, team.aktywny_zestaw_id]);
 
-  // 3. Moduł GPS działa ciągle i niezależnie w tle
   useEffect(() => {
     let subscription: Location.LocationSubscription | null = null;
-
     const initGPS = async () => {
       let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { 
-        setGpsStatus('Brak uprawnień GPS'); 
-        return; 
-      }
-
+      if (status !== 'granted') { setGpsStatus('Brak uprawnień GPS'); return; }
       setGpsStatus('GPS Aktywny');
-
-      // Wymuszenie błyskawicznego pobrania pozycji przy starcie
       try {
         const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setUserLocation(initialLoc);
-      } catch (e) {
-        console.log("Błąd wstępnej lokalizacji", e);
-      }
-
-      // Stała subskrypcja na zmiany pozycji co 5 metrów
+      } catch (e) { console.log("Błąd GPS", e); }
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, distanceInterval: 5 }, 
-        (loc) => {
-          setGpsStatus('GPS Aktywny');
-          setUserLocation(loc);
-        }
+        (loc) => { setGpsStatus('GPS Aktywny'); setUserLocation(loc); }
       );
     };
-
     initGPS();
-
-    return () => {
-      if (subscription) subscription.remove();
-    };
+    return () => { if (subscription) subscription.remove(); };
   }, []);
 
-  // 4. Błyskawiczne przeliczanie dystansu (uruchamia się, gdy gracz się ruszy LUB zmieni się zadanie)
   useEffect(() => {
     if (userLocation && activeTask?.latitude && activeTask?.longitude) {
       const d = calculateDistance(userLocation.coords.latitude, userLocation.coords.longitude, activeTask.latitude, activeTask.longitude);
@@ -102,40 +77,22 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
 
   const loadTasks = async () => {
     setLoading(true);
-
-    // ZADANIA GŁÓWNE
     let mains: any[] = [];
     if (team.aktywny_zestaw_id) {
-      const { data } = await supabase.from('tasks')
-        .select('*, team_tasks(*)')
-        .eq('zestaw_id', team.aktywny_zestaw_id)
-        .eq('typ', 'glowne')
-        .eq('is_active', true);
-        
+      const { data } = await supabase.from('tasks').select('*, team_tasks(*)').eq('zestaw_id', team.aktywny_zestaw_id).eq('typ', 'glowne').eq('is_active', true);
       if (data) mains = data.sort((a, b) => (a.kolejnosc || 0) - (b.kolejnosc || 0));
     }
-
     const next = mains.find(t => {
       const rel = t.team_tasks.find((r: any) => r.team_id === team.id);
       return rel?.status !== 'zaakceptowane' && rel?.status !== 'pominiete';
     });
     setActiveTask(next || null);
 
-    // SIDEQUESTY
-    const { data: sides } = await supabase.from('tasks')
-      .select('*, team_tasks(*)')
-      .eq('typ', 'sidequest')
-      .eq('is_active', true);
-      
+    const { data: sides } = await supabase.from('tasks').select('*, team_tasks(*)').eq('typ', 'sidequest').eq('is_active', true);
     if (sides) setSideQuests(sides);
 
-    // ZADANIA SPECJALNE
-    const { data: specials } = await supabase.from('tasks')
-      .select('*, team_tasks(*)')
-      .eq('typ', 'special_event')
-      .eq('is_active', true);
+    const { data: specials } = await supabase.from('tasks').select('*, team_tasks(*)').eq('typ', 'special_event').eq('is_active', true);
     if (specials) setSpecialTasksList(specials);
-
     setLoading(false);
   };
 
@@ -149,9 +106,7 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
 
   const handleStartTask = async () => {
     if (!isNear) return Alert.alert("Za daleko!", "Musisz być na miejscu, aby rozpocząć.");
-    await supabase.from('team_tasks').upsert({
-      team_id: team.id, task_id: activeTask.id, status: 'w_toku', rozpoczecie_zadania: new Date().toISOString()
-    }, { onConflict: 'team_id,task_id' });
+    await supabase.from('team_tasks').upsert({ team_id: team.id, task_id: activeTask.id, status: 'w_toku', rozpoczecie_zadania: new Date().toISOString() }, { onConflict: 'team_id,task_id' });
     loadTasks();
   };
 
@@ -160,26 +115,15 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
     Alert.alert(
       "Odrzuć misję", 
       `Czy na pewno chcesz na stałe porzucić to zadanie? \n\nOtrzymasz karę punktową: -${penalty} PKT i od razu przejdziesz do kolejnej misji.`, 
-      [
-        { text: "Anuluj", style: "cancel" },
-        { 
-          text: "TAK, ODRZUĆ", 
-          style: "destructive", 
-          onPress: async () => {
-            await supabase.from('team_tasks').upsert({
-              team_id: team.id, task_id: activeTask.id, status: 'pominiete'
-            }, { onConflict: 'team_id,task_id' });
-
+      [{ text: "Anuluj", style: "cancel" }, { text: "TAK, ODRZUĆ", style: "destructive", onPress: async () => {
+            await supabase.from('team_tasks').upsert({ team_id: team.id, task_id: activeTask.id, status: 'pominiete' }, { onConflict: 'team_id,task_id' });
             if (penalty > 0) {
               const { data: teamData } = await supabase.from('teams').select('punkty').eq('id', team.id).single();
-              const currentPoints = teamData?.punkty || 0;
-              await supabase.from('teams').update({ punkty: currentPoints - penalty }).eq('id', team.id);
+              await supabase.from('teams').update({ punkty: (teamData?.punkty || 0) - penalty }).eq('id', team.id);
             }
-
             loadTasks();
           }
-        }
-      ]
+      }]
     );
   };
 
@@ -187,61 +131,34 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.All, quality: 0.4 });
     if (result.canceled) return;
     setUploadingId(taskId);
-
     try {
       const asset = result.assets[0];
-      const fileExt = asset.uri.split('.').pop();
-      const fileName = `${team.id}/${taskId}_${Date.now()}.${fileExt}`;
+      const fileName = `${team.id}/${taskId}_${Date.now()}.${asset.uri.split('.').pop()}`;
       const formData = new FormData();
       formData.append('file', { uri: Platform.OS === 'ios' ? asset.uri.replace('file://', '') : asset.uri, name: fileName, type: asset.type === 'video' ? 'video/mp4' : 'image/jpeg' } as any);
-
       await supabase.storage.from('evidence').upload(fileName, formData);
       const { data: urlData } = supabase.storage.from('evidence').getPublicUrl(fileName);
-
-      await supabase.from('team_tasks').upsert({ 
-          team_id: team.id, task_id: taskId, status: 'do_oceny', 
-          dowod_url: urlData.publicUrl, przeslano_zadanie: new Date().toISOString() 
-        }, { onConflict: 'team_id,task_id' });
-
+      await supabase.from('team_tasks').upsert({ team_id: team.id, task_id: taskId, status: 'do_oceny', dowod_url: urlData.publicUrl, przeslano_zadanie: new Date().toISOString() }, { onConflict: 'team_id,task_id' });
       Alert.alert('Sukces', 'Dowód wysłany! Czekaj na werdykt sędziego.');
       loadTasks();
-    } catch (error: any) { Alert.alert('Błąd uploadu', error.message); } 
-    finally { setUploadingId(null); }
+    } catch (e: any) { Alert.alert('Błąd uploadu', e.message); } finally { setUploadingId(null); }
   };
 
   const getTaskDuration = (tt: any) => {
     if (!tt?.rozpoczecie_zadania) return "00:00";
     const startMs = new Date(tt.rozpoczecie_zadania).getTime();
-    const pausedMs = tt.suma_pauzy_ms || 0;
-    
-    let currentPauseMs = 0;
-    if (tt.ostatnia_pauza_start) {
-        currentPauseMs = now - new Date(tt.ostatnia_pauza_start).getTime();
-    }
-    
-    const activeTimeMs = now - startMs - pausedMs - currentPauseMs;
+    const activeTimeMs = now - startMs - (tt.suma_pauzy_ms || 0) - (tt.ostatnia_pauza_start ? now - new Date(tt.ostatnia_pauza_start).getTime() : 0);
     const totalSecs = Math.max(0, Math.floor(activeTimeMs / 1000));
-    
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return `${Math.floor(totalSecs / 60).toString().padStart(2, '0')}:${(totalSecs % 60).toString().padStart(2, '0')}`;
   };
 
-  const checkIsSpecialBlocking = () => {
-    return specialTasksList.some(task => {
-        const tt = task.team_tasks.find((r: any) => r.team_id === team.id);
-        const status = tt?.status;
-        if (status === 'pominiete' || status === 'zaakceptowane' || status === 'do_oceny') return false;
-        if (status === 'w_toku') return true;
-        const activationTime = new Date(task.aktywowano_w).getTime();
-        const isExpired = (now - activationTime) > 5 * 60 * 1000;
-        const isClaimedByOther = task.team_tasks.some((r: any) => r.team_id !== team.id && ['w_toku', 'do_oceny', 'zaakceptowane'].includes(r.status));
-        if (!isExpired && !isClaimedByOther && !status) return true;
-        return false;
-    });
-  };
-
-  const isSpecialBlocking = checkIsSpecialBlocking();
+  const isSpecialBlocking = specialTasksList.some(task => {
+    const tt = task.team_tasks.find((r: any) => r.team_id === team.id);
+    if (tt?.status === 'pominiete' || tt?.status === 'zaakceptowane' || tt?.status === 'do_oceny') return false;
+    if (tt?.status === 'w_toku') return true;
+    const isClaimed = task.team_tasks.some((r: any) => r.team_id !== team.id && ['w_toku', 'do_oceny', 'zaakceptowane'].includes(r.status));
+    return !((now - new Date(task.aktywowano_w).getTime()) > 5 * 60 * 1000) && !isClaimed && !tt?.status;
+  });
 
   if (loading) return <ActivityIndicator style={{marginTop: 50}} color="#ff4757" />;
 
@@ -255,15 +172,8 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
             const tt = activeTask.team_tasks.find((r: any) => r.team_id === team.id);
             const status = tt?.status || 'aktywne';
 
-            if (status === 'do_oceny') {
-              return (
-                <View style={styles.pendingBox}>
-                  <Text style={styles.taskTitle}>{activeTask.tytul}</Text>
-                  <Text style={styles.pendingText}>Sędziowie analizują materiał... 🕵️</Text>
-                </View>
-              );
-            }
-
+            if (status === 'do_oceny') return <View style={styles.pendingBox}><Text style={styles.taskTitle}>{activeTask.tytul}</Text><Text style={styles.pendingText}>Sędziowie analizują materiał... 🕵️</Text></View>;
+            
             if (!tt?.rozpoczecie_zadania || status === 'aktywne') {
               return (
                 <View>
@@ -282,35 +192,25 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
             return (
               <View>
                 <Text style={styles.taskTitle}>{activeTask.tytul}</Text>
-                
                 {status === 'odrzucone' && (
                   <View style={styles.rejectedBox}>
                     <Text style={styles.rejectedText}>⚠️ SĘDZIA ODRZUCIŁ ZADANIE!</Text>
                     <Text style={styles.rejectedSub}>Czas nadal biegnie. Poprawcie błędy i wyślijcie poprawiony dowód LUB odrzućcie misję i przyjmijcie karę.</Text>
                   </View>
                 )}
-
                 <Text style={styles.taskDesc}>{activeTask.opis}</Text>
-
                 <View style={styles.timerMainBox}>
                   <Text style={styles.timerMainLabel}>⏱️ CZAS WYKONYWANIA MISJI</Text>
                   <Text style={styles.timerMainValue}>{getTaskDuration(tt)}</Text>
                 </View>
-
                 {isSpecialBlocking ? (
-                  <View style={[styles.uploadBtn, {backgroundColor: '#333'}]}>
-                    <Text style={[styles.uploadBtnText, {color: '#ffa502'}]}>⚡ ZABLOKOWANE (TRWA AKCJA)</Text>
-                  </View>
+                  <View style={[styles.uploadBtn, {backgroundColor: '#333'}]}><Text style={[styles.uploadBtnText, {color: '#ffa502'}]}>⚡ ZABLOKOWANE (TRWA AKCJA)</Text></View>
                 ) : (
                   <TouchableOpacity style={styles.uploadBtn} onPress={() => handleFileUpload(activeTask.id)} disabled={uploadingId === activeTask.id}>
                     {uploadingId === activeTask.id ? <ActivityIndicator color="#000" /> : <Text style={styles.uploadBtnText}>📸 WYŚLIJ FOTO / WIDEO</Text>}
                   </TouchableOpacity>
                 )}
-
-                <TouchableOpacity style={styles.abandonBtn} onPress={handleAbandonMainTask}>
-                  <Text style={styles.abandonBtnText}>❌ ODRZUĆ ZADANIE (KARA: -{activeTask.kara_za_odrzucenie || 0} PKT)</Text>
-                </TouchableOpacity>
-
+                <TouchableOpacity style={styles.abandonBtn} onPress={handleAbandonMainTask}><Text style={styles.abandonBtnText}>❌ ODRZUĆ ZADANIE (KARA: -{activeTask.kara_za_odrzucenie || 0} PKT)</Text></TouchableOpacity>
               </View>
             );
           })()}
@@ -323,14 +223,27 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
       {sideQuests.map(sq => {
         const tt = sq.team_tasks.find((r: any) => r.team_id === team.id);
         const status = tt?.status;
+        const doneCount = tt?.ile_razy_wykonano || 0;
+        const max = sq.max_wykonan || 1;
 
         return (
           <View key={sq.id} style={styles.sideCard}>
-            <Text style={styles.sideTitle}>{sq.tytul}</Text>
+            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start'}}>
+              <Text style={[styles.sideTitle, {flex: 1}]}>{sq.tytul}</Text>
+              {max > 1 && (
+                <View style={styles.repeatBadge}>
+                  <Text style={styles.repeatText}>{doneCount}/{max}</Text>
+                </View>
+              )}
+            </View>
             <Text style={styles.sideDesc}>{sq.opis}</Text>
             
             <View style={styles.sideFooter}>
-              <Text style={styles.sidePoints}>PUNKTY: +{sq.punkty_bazowe}</Text>
+              <View>
+                <Text style={styles.sidePoints}>PUNKTY: +{sq.punkty_bazowe}</Text>
+                {status === 'ponownie_dostepne' && <Text style={{color: '#2ed573', fontSize: 9, fontWeight: 'bold', marginTop: 5}}>✅ ZALICZONE!</Text>}
+                {status === 'odrzucone' && <Text style={{color: '#ff4757', fontSize: 9, fontWeight: 'bold', marginTop: 5}}>⚠️ ODRZUCONE!</Text>}
+              </View>
 
               {status === 'do_oceny' ? (
                 <Text style={styles.sidePending}>Analiza sędziego... 🕵️</Text>
@@ -343,7 +256,7 @@ export default function TasksPlayerView({ userProfile, team }: Props) {
                   </View>
                 ) : (
                   <TouchableOpacity style={styles.uploadBtnSmall} onPress={() => handleFileUpload(sq.id)} disabled={uploadingId === sq.id}>
-                    {uploadingId === sq.id ? <ActivityIndicator color="#000" /> : <Text style={styles.uploadBtnTextSmall}>📸 WYŚLIJ DOWÓD</Text>}
+                    {uploadingId === sq.id ? <ActivityIndicator color="#000" /> : <Text style={styles.uploadBtnTextSmall}>📸 {doneCount > 0 ? "WYŚLIJ KOLEJNY" : "WYŚLIJ DOWÓD"}</Text>}
                   </TouchableOpacity>
                 )
               )}
@@ -374,17 +287,13 @@ const styles = StyleSheet.create({
   rejectedBox: { backgroundColor: '#330000', padding: 15, borderRadius: 10, marginBottom: 15, borderWidth: 1, borderColor: '#ff4757' },
   rejectedText: { color: '#ff4757', fontWeight: 'bold', fontSize: 14, marginBottom: 5 },
   rejectedSub: { color: '#ffaaaa', fontSize: 11, lineHeight: 16 },
-
   timerMainBox: { backgroundColor: '#1a1a1a', padding: 15, borderRadius: 12, alignItems: 'center', marginBottom: 20, borderWidth: 1, borderColor: '#333' },
   timerMainLabel: { color: '#888', fontSize: 10, fontWeight: 'bold', letterSpacing: 1 },
   timerMainValue: { color: '#fff', fontSize: 32, fontWeight: 'bold', marginTop: 5, letterSpacing: 2 },
-
   uploadBtn: { backgroundColor: '#2ed573', padding: 20, borderRadius: 15, alignItems: 'center' },
   uploadBtnText: { color: '#000', fontWeight: 'bold', fontSize: 15 },
-  
   abandonBtn: { backgroundColor: '#1a0000', padding: 15, borderRadius: 15, alignItems: 'center', marginTop: 15, borderWidth: 1, borderColor: '#330000' },
   abandonBtnText: { color: '#ff4757', fontWeight: 'bold', fontSize: 11 },
-  
   pendingBox: { alignItems: 'center', padding: 10 },
   pendingText: { color: '#ffa502', fontWeight: 'bold', textAlign: 'center', marginTop: 10 },
   allDone: { color: '#2ed573', textAlign: 'center', marginTop: 20, fontWeight: 'bold' },
@@ -397,5 +306,9 @@ const styles = StyleSheet.create({
   uploadBtnSmall: { backgroundColor: '#3742fa', paddingHorizontal: 15, paddingVertical: 10, borderRadius: 8 },
   uploadBtnTextSmall: { color: '#fff', fontWeight: 'bold', fontSize: 10 },
   sidePending: { color: '#ffa502', fontWeight: 'bold', fontSize: 11 },
-  sideDone: { color: '#666', fontWeight: 'bold', fontSize: 11 }
+  sideDone: { color: '#666', fontWeight: 'bold', fontSize: 11 },
+  
+  // Znacznik powtórzeń 
+  repeatBadge: { backgroundColor: '#3498DB', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, marginLeft: 10 },
+  repeatText: { color: '#fff', fontSize: 10, fontWeight: 'bold' }
 });

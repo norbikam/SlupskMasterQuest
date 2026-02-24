@@ -9,18 +9,32 @@ export default function LocationTracker({ teamId }: { teamId: string }) {
     const startTracking = async () => {
       // 1. Prośba o uprawnienia
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
+      if (status !== 'granted') {
+        console.log("Brak uprawnień GPS dla Trackera");
+        return;
+      }
 
-      // 2. Śledzenie pozycji (aktualizacja co 30 metrów lub 30 sekund)
+      // 2. WYMUSZENIE pierwszego zapisu (dzięki temu drużyna pojawi się na mapie od razu po zalogowaniu!)
+      try {
+        const initialLoc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        await supabase
+            .from('teams')
+            .update({ latitude: initialLoc.coords.latitude, longitude: initialLoc.coords.longitude })
+            .eq('id', teamId);
+      } catch (e) {
+        console.log("Błąd wstępnego pobrania lokalizacji:", e);
+      }
+
+      // 3. Śledzenie w tle (zmniejszono do 5 metrów dla lepszej płynności)
       subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 30000, 
-          distanceInterval: 30,
+          accuracy: Location.Accuracy.High,
+          timeInterval: 10000, 
+          distanceInterval: 5,
         },
         async (location) => {
           const { latitude, longitude } = location.coords;
-          // 3. Wysyłamy do bazy
+          // Wysyłamy aktualizację do bazy
           await supabase
             .from('teams')
             .update({ latitude, longitude })
@@ -36,5 +50,5 @@ export default function LocationTracker({ teamId }: { teamId: string }) {
     };
   }, [teamId]);
 
-  return null; // Komponent działa w tle, nic nie wyświetla
+  return null; // Komponent działa w tle
 }

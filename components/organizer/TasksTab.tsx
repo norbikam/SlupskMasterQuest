@@ -9,7 +9,6 @@ const DOSTEPNE_ZESTAWY = Array.from({ length: 11 }, (_, i) => `Zestaw_${i}`);
 export default function TasksTab() {
   const [activeSubTab, setActiveSubTab] = useState<'dodaj' | 'lista'>('dodaj');
 
-  // Stan formularza (używany do dodawania i edycji)
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [taskTitle, setTaskTitle] = useState('');
   const [taskDesc, setTaskDesc] = useState('');
@@ -17,6 +16,7 @@ export default function TasksTab() {
   const [zestawId, setZestawId] = useState('Zestaw_1');
   const [taskPoints, setTaskPoints] = useState('10');
   const [taskPenalty, setTaskPenalty] = useState('0'); 
+  const [taskMaxWykonan, setTaskMaxWykonan] = useState('1'); // NOWY STAN DLA LIMITU
   const [taskType, setTaskType] = useState<TaskType>('glowne');
   const [markerCoords, setMarkerCoords] = useState<{latitude: number, longitude: number} | null>(null);
   const [mapRegion, setMapRegion] = useState({ latitude: 54.4641, longitude: 17.0285, latitudeDelta: 0.02, longitudeDelta: 0.02 });
@@ -51,6 +51,7 @@ export default function TasksTab() {
     setZestawId('Zestaw_1');
     setTaskPoints('10');
     setTaskPenalty('0');
+    setTaskMaxWykonan('1'); // RESET
     setTaskType('glowne');
     setMarkerCoords(null);
     setGates({ g5: '', g4: '', g3: '', g2: '', g1: '' });
@@ -64,6 +65,7 @@ export default function TasksTab() {
     setZestawId(task.zestaw_id || 'Zestaw_1');
     setTaskPoints(String(task.punkty_bazowe || 0));
     setTaskPenalty(String(task.kara_za_odrzucenie || 0));
+    setTaskMaxWykonan(String(task.max_wykonan || 1)); // POBIERANIE LIMITU
     setTaskType(task.typ || 'glowne');
     
     if (task.latitude && task.longitude) {
@@ -100,6 +102,7 @@ export default function TasksTab() {
       longitude: markerCoords ? markerCoords.longitude : null,
       punkty_bazowe: parseInt(taskPoints) || 0,
       kara_za_odrzucenie: taskType !== 'sidequest' ? (parseInt(taskPenalty) || 0) : 0, 
+      max_wykonan: taskType === 'sidequest' ? (parseInt(taskMaxWykonan) || 1) : 1, // ZAPIS LIMITU TYLKO DLA POBOCZNYCH
       gate_5_min: taskType === 'glowne' ? parseInt(gates.g5) || null : null,
       gate_4_min: taskType === 'glowne' ? parseInt(gates.g4) || null : null,
       gate_3_min: taskType === 'glowne' ? parseInt(gates.g3) || null : null,
@@ -108,7 +111,6 @@ export default function TasksTab() {
     };
 
     if (editingTaskId) {
-      // AKTUALIZACJA ISTNIEJĄCEGO ZADANIA
       const { error } = await supabase.from('tasks').update(payload).eq('id', editingTaskId);
       setIsSubmitting(false);
       if (error) Alert.alert('Błąd', error.message);
@@ -119,7 +121,6 @@ export default function TasksTab() {
         setActiveSubTab('lista');
       }
     } else {
-      // TWORZENIE NOWEGO ZADANIA
       const { error } = await supabase.from('tasks').insert([{
         ...payload,
         is_active: false,
@@ -206,11 +207,10 @@ export default function TasksTab() {
       <View style={{flex: 1, paddingLeft: zestawTasks ? 10 : 0}}>
         <Text style={styles.cardTitle}>{task.tytul}</Text>
         <Text style={styles.cardInfo}>
-          {task.is_active ? '🟢 AKTYWNE' : '🔴 UKRYTE'} | Pkt: {task.punkty_bazowe}
+          {task.is_active ? '🟢 AKTYWNE' : '🔴 UKRYTE'} | Pkt: {task.punkty_bazowe} {task.typ === 'sidequest' && task.max_wykonan > 1 && `(Do powtórzenia: x${task.max_wykonan})`}
         </Text>
       </View>
 
-      {/* NOWY BLOK Z PRZYCISKAMI AKCJI */}
       <View style={styles.actionsBox}>
         <TouchableOpacity style={[styles.actionBtn, {backgroundColor: '#3498DB'}]} onPress={() => handleEditTask(task)}>
           <Text style={{color: '#fff', fontWeight: 'bold', fontSize: 10}}>EDYTUJ</Text>
@@ -270,6 +270,7 @@ export default function TasksTab() {
               ))}
             </View>
 
+            {/* OPCJE DLA ZADAŃ GŁÓWNYCH */}
             {taskType === 'glowne' && (
               <View style={styles.conditionalSection}>
                 <Text style={styles.label}>PRZYPISZ DO ZESTAWU:</Text>
@@ -279,7 +280,6 @@ export default function TasksTab() {
                   ))}
                 </ScrollView>
                 
-                {/* PRZYWRÓCONE BRAMKI CZASOWE */}
                 <Text style={styles.label}>BRAMKI CZASU (MINUTY):</Text>
                 <View style={styles.row}>
                   <TextInput style={styles.gateInput} placeholder="+5p" placeholderTextColor="#444" value={gates.g5} onChangeText={v => setGates({...gates, g5: v})} keyboardType="numeric" />
@@ -287,6 +287,18 @@ export default function TasksTab() {
                   <TextInput style={styles.gateInput} placeholder="+3p" placeholderTextColor="#444" value={gates.g3} onChangeText={v => setGates({...gates, g3: v})} keyboardType="numeric" />
                   <TextInput style={styles.gateInput} placeholder="+2p" placeholderTextColor="#444" value={gates.g2} onChangeText={v => setGates({...gates, g2: v})} keyboardType="numeric" />
                   <TextInput style={styles.gateInput} placeholder="+1p" placeholderTextColor="#444" value={gates.g1} onChangeText={v => setGates({...gates, g1: v})} keyboardType="numeric" />
+                </View>
+              </View>
+            )}
+
+            {/* OPCJE DLA SIDEQUESTÓW */}
+            {taskType === 'sidequest' && (
+              <View style={styles.conditionalSection}>
+                <View style={styles.row}>
+                  <View style={{flex: 1}}>
+                    <Text style={styles.label}>ILE RAZY MOŻNA WYKONAĆ (DLA 1 DRUŻYNY):</Text>
+                    <TextInput style={styles.input} placeholder="1" value={taskMaxWykonan} onChangeText={setTaskMaxWykonan} keyboardType="numeric" />
+                  </View>
                 </View>
               </View>
             )}

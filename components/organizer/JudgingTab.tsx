@@ -8,7 +8,6 @@ export default function JudgingTab() {
   useEffect(() => {
     fetchSubmissions();
     
-    // Auto-odświeżanie, gdy wpadnie nowe zadanie
     const channelTT = supabase.channel('judging_sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'team_tasks', filter: `status=eq.do_oceny` }, () => fetchSubmissions())
       .subscribe();
@@ -52,15 +51,22 @@ export default function JudgingTab() {
       const bonus = getBonus(totalMin, item.tasks);
       const totalPoints = item.tasks.punkty_bazowe + bonus;
 
-      // ZATWIERDZENIE
+      // Liczymy wykonania
+      const newCount = (item.ile_razy_wykonano || 0) + 1;
+      const maxWykonan = item.tasks.max_wykonan || 1;
+      const isFullyDone = newCount >= maxWykonan;
+
+      // ZATWIERDZENIE (Jeśli to powtarzalne, czyścimy URL by gracze mogli dodać nowe)
       await supabase.from('team_tasks').update({ 
-        status: 'zaakceptowane', 
-        przyznane_punkty: totalPoints 
+        status: isFullyDone ? 'zaakceptowane' : 'ponownie_dostepne', 
+        przyznane_punkty: totalPoints,
+        ile_razy_wykonano: newCount,
+        dowod_url: isFullyDone ? item.dowod_url : null, 
+        odpowiedz_foto_url: isFullyDone ? item.odpowiedz_foto_url : null 
       }).eq('id', item.id);
 
       await supabase.rpc('increment_team_points', { team_id: item.team_id, amount: totalPoints });
 
-      // Zdejmij pauzę z głównego zadania, jeśli to było wydarzenie specjalne
       if (item.tasks.typ === 'special_event') {
         const pauseEnd = new Date().getTime();
         const pauseStart = new Date(item.rozpoczecie_zadania).getTime();
@@ -74,10 +80,9 @@ export default function JudgingTab() {
         }
       }
     } else {
-      // ODRZUCENIE (Cofamy zadanie graczom, żeby poprawili - status 'odrzucone')
       Alert.alert(
         "Odrzucić?",
-        "To cofnie zadanie drużynie, a ich timer będzie leciał dalej. Będą musieli poprawić dowód i wysłać ponownie.",
+        "To cofnie zadanie drużynie (status zmieni się na odrzucone). Będą musieli poprawić dowód i wysłać ponownie.",
         [
           { text: "Anuluj", style: "cancel" },
           { 
@@ -90,7 +95,7 @@ export default function JudgingTab() {
           }
         ]
       );
-      return; // Przerywamy dalsze wykonywanie dla odrzucenia (bo używamy Alerta)
+      return; 
     }
     fetchSubmissions();
   };
@@ -110,7 +115,6 @@ export default function JudgingTab() {
       {submissions.map(item => {
         const { display, totalMin } = calculateNetTime(item);
         const bonus = getBonus(totalMin, item.tasks);
-
         const mediaUrl = item.dowod_url || item.odpowiedz_foto_url;
 
         return (
@@ -120,7 +124,11 @@ export default function JudgingTab() {
             
             <View style={styles.infoBox}>
               <Text style={styles.infoLabel}>PUNKTY BAZOWE: <Text style={styles.infoVal}>{item.tasks.punkty_bazowe} PKT</Text></Text>
-              {/* Czas pokazujemy tylko dla głównych zadań */}
+              
+              {item.tasks.typ === 'sidequest' && item.tasks.max_wykonan > 1 && (
+                <Text style={styles.infoLabel}>POWTÓRZENIE: <Text style={styles.infoVal}>{(item.ile_razy_wykonano || 0) + 1} / {item.tasks.max_wykonan}</Text></Text>
+              )}
+
               {item.tasks.typ === 'glowne' && (
                   <>
                     <Text style={styles.infoLabel}>CZAS NETTO: <Text style={styles.infoVal}>{display}</Text></Text>
@@ -134,7 +142,6 @@ export default function JudgingTab() {
             
             {mediaUrl && (
               <TouchableOpacity onPress={() => openMedia(mediaUrl)}>
-                {/* Jeśli wideo to pokaże się miniatura lub ikona, przeglądarka odtworzy je po kliknięciu */}
                 <Image source={{ uri: mediaUrl }} style={styles.mediaImage} resizeMode="cover" />
                 <View style={styles.playOverlay}>
                     <Text style={styles.playIcon}>🔍 OTWÓRZ</Text>
@@ -154,7 +161,6 @@ export default function JudgingTab() {
         );
       })}
       
-      {/* Dodatkowy margines dolny */}
       <View style={{height: 40}} />
     </ScrollView>
   );

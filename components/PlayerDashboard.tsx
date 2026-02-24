@@ -277,7 +277,7 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
           </View>
         </Modal>
       )}
-    <LocationTracker teamId={team.id}/>
+    {team && <LocationTracker teamId={team.id} />}
     </SafeAreaView>
   );
 }
