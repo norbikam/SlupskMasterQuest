@@ -26,8 +26,8 @@ export default function OrganizerDashboard({ userProfile, onLogout }: { userProf
     { id: 'komunikaty', label: 'ALERTY', icon: '📢', color: '#FFA502', sub: 'Broadcast' },
     { id: 'zadania', label: 'ZADANIA', icon: '⚔️', color: '#3742FA', sub: 'Dodaj usuń' },
     { id: 'konta', label: 'GRACZE', icon: '👥', color: '#7F8C8D', sub: 'Baza kont' },
-    { id: 'zarzadzanie_gra', label: 'PARAMETRY', icon: '⚙️', color: '#6C5CE7', sub: 'Cele i limity' },
     { id: 'chat_imp', label: 'IMPOSTORZY', icon: '🕵️', color: '#8E44AD', sub: 'Tajny kanał' },
+    { id: 'zarzadzanie_gra', label: 'ZARZĄDZANIE ZESPOŁAMI', icon: '⚙️', color: '#6C5CE7', sub: 'Pkt, cele i zadania' },
     { id: 'chat_det', label: 'DETEKTYWI', icon: '🔍', color: '#E67E22', sub: 'Tajny kanał' },
     { id: 'chat_age', label: 'AGENCI', icon: '🕶️', color: '#2C3E50', sub: 'Tajny kanał' },
   ];

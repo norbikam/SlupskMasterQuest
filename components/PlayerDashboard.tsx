@@ -147,7 +147,7 @@ export default function PlayerDashboard({ userProfile: initialProfile, onLogout 
 
       <View style={{ flex: 1 }}>
         {activeTab === 'tasks' && <TasksPlayerView team={team} userProfile={userProfile} />}
-        {activeTab === 'special' && <SpecialTasksTab team={team} userProfile={userProfile} />} {/* NOWA ZAKŁADKA */}
+        {activeTab === 'special' && <SpecialTasksTab team={team} userProfile={userProfile} />}
         {activeTab === 'ranking' && <Leaderboard />}
         {activeTab === 'chat' && canSeeChat && <GroupChat channel={role} userProfile={userProfile} />}
       </View>

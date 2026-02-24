@@ -42,6 +42,9 @@ export interface Task {
   gate_3_min?: number;
   gate_2_min?: number;
   gate_1_min?: number;
+  kolejnosc?: number;
+  is_active?: boolean;
+  aktywowano_w?: string;
 }
 
 export interface TeamTask {
