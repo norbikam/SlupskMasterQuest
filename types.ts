@@ -1,6 +1,11 @@
 // types.ts
-export type UserRole = 'gracz' | 'agent' | 'impostor' | 'detektyw' | 'organizator';
-export type TaskType = 'glowne' | 'sidequest' | 'special_event';
+export type UserRole =
+  | "gracz"
+  | "agent"
+  | "impostor"
+  | "detektyw"
+  | "organizator";
+export type TaskType = "glowne" | "sidequest" | "special_event";
 
 export interface Profile {
   id: string;
@@ -11,7 +16,6 @@ export interface Profile {
   is_leader: boolean;
   latitude?: number;
   longitude?: number;
-  haslo: string;
 }
 
 export interface Team {
@@ -51,7 +55,13 @@ export interface TeamTask {
   id: string;
   team_id: string;
   task_id: string;
-  status: 'aktywne' | 'w_toku' | 'do_oceny' | 'zaakceptowane' | 'odrzucone' | 'pominiete';
+  status:
+    | "aktywne"
+    | "w_toku"
+    | "do_oceny"
+    | "zaakceptowane"
+    | "odrzucone"
+    | "pominiete";
   rozpoczecie_zadania?: string;
   przeslano_zadanie?: string;
   suma_pauzy_ms: number;

@@ -2,6 +2,16 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
+## Security setup (Supabase)
+
+This project now includes a Supabase hardening baseline:
+
+1. Configure env vars using [.env.example](.env.example)
+2. Read [SECURITY.md](SECURITY.md)
+3. Run [supabase/security_hardening.sql](supabase/security_hardening.sql) in Supabase SQL Editor
+
+Important: mobile apps can safely use a publishable/anon key only when RLS is strict and users are authenticated.
+
 ## Get started
 
 1. Install dependencies
