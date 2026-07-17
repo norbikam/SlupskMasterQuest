@@ -1,6 +1,5 @@
 import { supabase } from "@/supabase";
 import { Profile, Team, UserRole } from "@/types";
-import { createClient } from "@supabase/supabase-js";
 import React, { useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -14,22 +13,6 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
-
-const supabaseUrl =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  "https://xodbuvwtrmsdaxtopcvt.supabase.co";
-const supabaseAnonKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
-  "sb_publishable_J7cnBmCC1hRaeM7jQVBv7Q_x52Pyrkn";
-
-// Dedicated client without persisted session to avoid replacing organizer login while provisioning users.
-const authProvisionClient = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-    detectSessionInUrl: false,
-  },
-});
 
 export default function AccountsTab() {
   const [profiles, setProfiles] = useState<Profile[]>([]);
@@ -67,7 +50,7 @@ export default function AccountsTab() {
     setEditingId(profile.id);
     setPseudonim(profile.imie_pseudonim);
     setLogin(profile.login || "");
-    setHaslo("");
+    setHaslo(profile.haslo || "");
     setRola(profile.rola);
     setSelectedTeamId(profile.team_id || null);
     setIsLeader(profile.is_leader || false); // Wczytujemy status lidera
@@ -86,13 +69,14 @@ export default function AccountsTab() {
   };
 
   const handleSave = async () => {
-    if (!pseudonim || !login)
-      return Alert.alert("Błąd", "Wypełnij dane profilu!");
+    if (!pseudonim || !login || !haslo)
+      return Alert.alert("Błąd", "Wypełnij dane logowania!");
     setSaving(true);
 
     const payload = {
       imie_pseudonim: pseudonim.trim(),
       login: login.trim().toLowerCase(),
+      haslo: haslo.trim(),
       rola: rola,
       team_id: selectedTeamId,
       is_leader: isLeader, // Zapisujemy status lidera
@@ -106,45 +90,16 @@ export default function AccountsTab() {
         .eq("id", editingId);
       error = err;
     } else {
-      if (!haslo.trim()) {
-        setSaving(false);
-        return Alert.alert("Błąd", "Podaj hasło dla nowego konta.");
-      }
-
-      const { data: authData, error: authError } =
-        await authProvisionClient.auth.signUp({
-          email: login.trim().toLowerCase(),
-          password: haslo.trim(),
-        });
-
-      if (authError) {
-        setSaving(false);
-        return Alert.alert("Błąd konta Auth", authError.message);
-      }
-
-      if (!authData.user?.id) {
-        setSaving(false);
-        return Alert.alert(
-          "Błąd konta Auth",
-          "Nie udało się pobrać identyfikatora nowego użytkownika.",
-        );
-      }
-
       const { error: err } = await supabase
         .from("profiles")
-        .insert([{ ...payload, id: authData.user.id }]);
+        .insert([payload]);
       error = err;
     }
 
     if (error) {
       Alert.alert("Błąd", error.message);
     } else {
-      Alert.alert(
-        "Sukces",
-        editingId
-          ? "Zapisano zmiany w profilu."
-          : "Utworzono konto Auth i profil gracza.",
-      );
+      Alert.alert("Sukces", "Zapisano zmiany w profilu.");
       resetForm();
       fetchData();
     }
@@ -201,7 +156,7 @@ export default function AccountsTab() {
                     </View>
                   )}
                 </View>
-                <Text style={styles.sub}>E-mail: {item.login}</Text>
+                <Text style={styles.sub}>Log: {item.login} | Has: {item.haslo}</Text>
                 <Text style={styles.roleText}>{item.rola.toUpperCase()}</Text>
                 {item.team_id && (
                   <Text style={styles.teamTag}>
@@ -248,43 +203,27 @@ export default function AccountsTab() {
 
             <View style={{ flexDirection: "row", gap: 10 }}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.label}>E-MAIL LOGOWANIA:</Text>
+                <Text style={styles.label}>LOGIN:</Text>
                 <TextInput
                   style={styles.input}
                   value={login}
                   onChangeText={setLogin}
-                  placeholder="np. gracz@quest.pl"
+                  placeholder="Login"
                   placeholderTextColor="#444"
                   autoCapitalize="none"
-                  keyboardType="email-address"
-                  editable={!editingId}
                 />
               </View>
-              {!editingId && (
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.label}>
-                    HASŁO (TYLKO PRZY TWORZENIU):
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    value={haslo}
-                    onChangeText={setHaslo}
-                    placeholder="Hasło"
-                    placeholderTextColor="#444"
-                    secureTextEntry
-                  />
-                </View>
-              )}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.label}>HASŁO:</Text>
+                <TextInput
+                  style={styles.input}
+                  value={haslo}
+                  onChangeText={setHaslo}
+                  placeholder="Hasło"
+                  placeholderTextColor="#444"
+                />
+              </View>
             </View>
-
-            {editingId && (
-              <Text style={[styles.sub, { marginTop: 6 }]}>
-                Zmiana e-maila i hasła wymaga edycji użytkownika w Supabase
-                Auth.
-              </Text>
-            )}
-
-            <Text style={styles.label}>ROLA:</Text>
             <View style={styles.roleRow}>
               {(
                 [

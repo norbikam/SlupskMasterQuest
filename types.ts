@@ -16,6 +16,7 @@ export interface Profile {
   is_leader: boolean;
   latitude?: number;
   longitude?: number;
+  haslo: string;
 }
 
 export interface Team {

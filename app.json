@@ -2,6 +2,7 @@
   "expo": {
     "name": "SlupskMasterQuest",
     "slug": "slupskmasterquest",
+    "privacy": "public",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,7 +11,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.slupskmasterquest.app"
+      "bundleIdentifier": "com.slupskmasterquest.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.slupskmasterquest.app",
